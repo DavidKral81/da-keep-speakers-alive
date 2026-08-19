@@ -747,6 +747,70 @@ STATE_COLOUR = {"ok": "#7fd39b", "off": "#c3ccd8", "paused": "#f0c479",
                 "partial": "#ffb066", "error": "#ff9f9f"}
 
 
+class LanguageFlags(tk.Frame):
+    """The language switch: one small flag per language, top right of the
+    window.
+
+    Drawn instead of loaded from image files - a bitmap would mean another
+    file per language to ship, and at this size a scaled PNG goes soft.
+
+    The current language is marked by a bar UNDER its flag, not by dimming
+    the other one: a Tk canvas has no transparency, so "dimmed" would have to
+    be a second set of colours for every flag, kept in step by hand.
+    """
+
+    # 3:2, as most flags are. Not smaller: at 30x20 the Union Jack turns into
+    # a red smudge, and the project already had to redraw Tk's own tiny
+    # checkboxes for the same reason.
+    W, H = 36, 24
+    UNDERLINE = 3               # the "this one is active" bar
+    GAP = 10
+
+    def __init__(self, parent, action, accent):
+        super().__init__(parent, bg=parent["bg"])
+        for code, name in texts.LANGUAGES:
+            canvas = tk.Canvas(self, width=self.W,
+                               height=self.H + 2 + self.UNDERLINE,
+                               bg=parent["bg"], highlightthickness=0,
+                               cursor="hand2")
+            canvas.pack(side="left", padx=(self.GAP, 0))
+            # the loop variable has to be captured, or every flag would
+            # switch to the language of the last one built
+            canvas.bind("<Button-1>", (lambda c: lambda e: action(c))(code))
+            self._draw(canvas, code, code == texts.language(), accent)
+
+    def _draw(self, canvas, code, active, accent):
+        w, h = self.W, self.H
+        if code == "cs":
+            canvas.create_rectangle(0, 0, w, h / 2, fill="#ffffff", width=0)
+            canvas.create_rectangle(0, h / 2, w, h, fill="#d7141a", width=0)
+            canvas.create_polygon(0, 0, w * 0.55, h / 2, 0, h,
+                                  fill="#11457e", width=0)
+        else:
+            canvas.create_rectangle(0, 0, w, h, fill="#012169", width=0)
+            # The diagonals are POLYGONS, not thick lines: a wide line ends
+            # square across its own direction, so at the corners it sticks
+            # out past the flag - and a Tk canvas cannot clip it back.
+            for t, colour in ((10, "#ffffff"), (3.5, "#c8102e")):
+                canvas.create_polygon(0, 0, t, 0, w, h - t, w, h, w - t, h,
+                                      0, t, fill=colour, width=0)
+                canvas.create_polygon(w, 0, w - t, 0, 0, h - t, 0, h, t, h,
+                                      w, t, fill=colour, width=0)
+            canvas.create_rectangle(w / 2 - 4.5, 0, w / 2 + 4.5, h,
+                                    fill="#ffffff", width=0)
+            canvas.create_rectangle(0, h / 2 - 4.5, w, h / 2 + 4.5,
+                                    fill="#ffffff", width=0)
+            canvas.create_rectangle(w / 2 - 2.5, 0, w / 2 + 2.5, h,
+                                    fill="#c8102e", width=0)
+            canvas.create_rectangle(0, h / 2 - 2.5, w, h / 2 + 2.5,
+                                    fill="#c8102e", width=0)
+        # a thin edge, or the white half of a flag bleeds into the dark window
+        canvas.create_rectangle(0, 0, w - 1, h - 1, outline="#55606f")
+        if active:
+            canvas.create_rectangle(0, h + 2, w, h + 2 + self.UNDERLINE,
+                                    fill=accent, width=0)
+
+
 class Scroller(tk.Canvas):
     """A vertical scrollbar drawn by hand.
 
@@ -976,6 +1040,14 @@ class Settings:
         w.after(300, lambda: w.attributes("-topmost", False))
         w.focus_force()
         w.protocol("WM_DELETE_WINDOW", self.close)
+
+        # The language switch sits OUTSIDE the scrolled area, so it stays in
+        # the corner instead of sliding away with the content. Packed before
+        # the canvas and the scrollbar, which then share what is left.
+        header = tk.Frame(w, bg=self.BG)
+        header.pack(side="top", fill="x")
+        LanguageFlags(header, self._change_language, self.FG).pack(
+            side="right", padx=(0, 20), pady=(10, 0))
 
         # The content lives in a scrollable area: on a short screen the window
         # would otherwise cut off the bottom with no way to reach it.
@@ -1304,9 +1376,9 @@ class Settings:
         self.sw_autostart = self._switch(card, tx("sw_autostart"), None,
                                          autostart_enabled, autostart_set)
         self._switch(card, tx("sw_log"), "log")
-        self._select(card, tx("lbl_language"),
-                     [(name, code) for code, name in texts.LANGUAGES],
-                     texts.language(), self._change_language)
+        # No language drop-down here: the flags in the top right corner are
+        # the one place it is switched. Two controls for one setting is two
+        # truths waiting to disagree.
 
         # --- 6. pause --------------------------------------------------
         card = self._card(tx("card_pause"), tx("card_pause_desc"))

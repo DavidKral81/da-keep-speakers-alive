@@ -128,7 +128,6 @@ CS = {
     "sw_active": "Udržovat reproduktory vzhůru",
     "sw_autostart": "Spouštět po přihlášení do Windows",
     "sw_log": "Zapisovat log do souboru",
-    "lbl_language": "Jazyk",
 
     # --- pause card ----------------------------------------------------
     "card_pause": "Dočasně pozastavit",
@@ -233,7 +232,6 @@ EN = {
     "sw_active": "Keep the speakers awake",
     "sw_autostart": "Start when I log in to Windows",
     "sw_log": "Write a log file",
-    "lbl_language": "Language",
 
     # --- pause card ----------------------------------------------------
     "card_pause": "Pause for a while",

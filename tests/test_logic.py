@@ -223,8 +223,9 @@ def test_what_a_missing_device_reports():
     """
     print("what a missing device reports")
     engine = K.ENGINE
-    saved_targets, saved_log = K.targets, K.log
-    saved_error, saved_cfg = engine.error, dict(K.CFG)
+    saved_targets, saved_log, saved_play = K.targets, K.log, K.play
+    saved_error, saved_partly = engine.error, engine.partly
+    saved_cfg = dict(K.CFG)
     saved_language = texts.language()
     written = []
     try:
@@ -244,14 +245,31 @@ def test_what_a_missing_device_reports():
               written and "is not connected" in written[-1]
               and "není" not in written[-1], str(written[-1:]))
 
+        check("nothing played, so this is a real failure",
+              engine.state() == "error", engine.state())
+
+        # The case David hit: the default device DID get the pulse, one saved
+        # device did not - and the window announced "the last pulse could not
+        # be played", which is simply untrue.
+        K.CFG["devices"] = [gone]
+        K.targets = lambda devices=None: (
+            [{"index": 0, "name": "Works", "samplerate": 48000,
+              "channels": 2}], [gone])
+        K.play = lambda device, wave: None
+        error = engine.send(" (test)") or ""
+        check("a pulse that reached SOME devices is not called a failure",
+              engine.state() == "partial", engine.state())
+        check("and the reason is still there to read",
+              "není připojené" in error, error)
+
         K.CFG["devices"] = []
         K.targets = lambda devices=None: ([], [])
         error = engine.send(" (test)") or ""
         check("with nothing selected the plea to pick a device stays",
               "Není vybrané" in error, error)
     finally:
-        K.targets, K.log = saved_targets, saved_log
-        engine.error = saved_error
+        K.targets, K.log, K.play = saved_targets, saved_log, saved_play
+        engine.error, engine.partly = saved_error, saved_partly
         K.CFG.clear()
         K.CFG.update(saved_cfg)
         texts.set_language(saved_language)

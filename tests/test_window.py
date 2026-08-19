@@ -52,7 +52,7 @@ def main():
     if BREAK_IT:
         # a bar that is told nothing and therefore never moves - exactly the
         # regression the check below exists for
-        K.PulseBar.show = lambda self, done, span, error=None: None
+        K.PulseBar.show = lambda self, done, span, error=None, partly=False: None
     saved_config = json.dumps(dict(K.CFG))
     root = tk.Tk()
     root.withdraw()

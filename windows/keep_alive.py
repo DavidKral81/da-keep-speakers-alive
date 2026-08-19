@@ -353,6 +353,10 @@ class Engine(threading.Thread):
         self.last_wall = None           # datetime of the last pulse
         self.count = 0
         self.error = None               # text of the last failure, or None
+        # Whether that failure was only partial - some devices got the pulse
+        # and some did not. "The last pulse could not be played" is a lie in
+        # that case, and the user has no way to tell it from a total failure.
+        self.partly = False
         self.paused_until = 0.0         # monotonic
         self.pulse_now = False
         self.playing_from = 0.0         # monotonic, 0 = nothing is playing now
@@ -395,7 +399,7 @@ class Engine(threading.Thread):
         if self.paused():
             return "paused"
         if self.error:
-            return "error"
+            return "partial" if self.partly else "error"
         return "ok"
 
     # --- the work itself ------------------------------------------------
@@ -446,6 +450,7 @@ class Engine(threading.Thread):
             self.count += 1
             self.error = ("\n".join(tx(key, **kw) for key, kw in problems)
                           if problems else None)
+            self.partly = bool(played) and bool(problems)
             if problems:
                 in_english = "; ".join(tx_en(key, **kw) for key, kw in problems)
                 log(f"Pulse{reason}: {in_english}")
@@ -732,10 +737,14 @@ def seconds_text(value):
 
 # ---------------------------------------------------------------- window
 
-# The colours of the four states, in one place: the status card and the pulse
-# bar both show the same thing and must not drift apart.
+# The colours of the states, in one place: the status card and the pulse bar
+# both show the same thing and must not drift apart.
+#
+# "partial" is amber rather than red on purpose - some speakers did get the
+# pulse, so the app is doing its job for them; red would send the user hunting
+# for a fault that is not there.
 STATE_COLOUR = {"ok": "#7fd39b", "off": "#c3ccd8", "paused": "#f0c479",
-                "error": "#ff9f9f"}
+                "partial": "#ffb066", "error": "#ff9f9f"}
 
 
 class Scroller(tk.Canvas):
@@ -829,14 +838,20 @@ class PulseBar(tk.Frame):
         self.shown = (0.0, "", STATE_COLOUR["ok"])
         self.canvas.bind("<Configure>", lambda e: self._draw())
 
-    def show(self, done, span, error=None):
-        """`done` and `span` in seconds; span of 0 means nothing is playing."""
+    def show(self, done, span, error=None, partly=False):
+        """`done` and `span` in seconds; span of 0 means nothing is playing.
+
+        `partly` marks a pulse that reached some devices and not others - the
+        bar has to say the same thing as the status card, or the window
+        contradicts itself in two places at once.
+        """
         fraction = 0.0 if span <= 0 else min(1.0, max(0.0, done / span))
-        colour = STATE_COLOUR["error" if error else "ok"]
+        state = ("partial" if partly else "error") if error else "ok"
+        colour = STATE_COLOUR[state]
         if span <= 0:
             caption = ""
         elif error:
-            caption = tx("bar_failed")
+            caption = tx("bar_partial" if partly else "bar_failed")
         elif fraction >= 1.0:
             caption = tx("bar_done", total=seconds_text(span))
         else:
@@ -1227,6 +1242,16 @@ class Settings:
                                     justify="left",
                                     wraplength=self.CARD_WIDTH - 40)
         self.status_line.pack(anchor="w")
+        # The reason sits right under the headline, in the headline's colour
+        # and not in the dim grey of the rest: buried among "last pulse",
+        # "next pulse" and "pulses sent" it went unread, which is the whole
+        # point of a message that explains the red line above it.
+        # Packed and unpacked as it comes and goes, so there is no empty gap
+        # in the card while nothing is wrong.
+        self.status_problem = tk.Label(card, text="", bg=self.CARD,
+                                       fg=STATE_COLOUR["error"],
+                                       font=("Segoe UI", 9), justify="left",
+                                       wraplength=self.CARD_WIDTH - 40)
         self.status_detail = tk.Label(card, text="", bg=self.CARD, fg=self.DIM,
                                       font=("Segoe UI", 9), justify="left",
                                       wraplength=self.CARD_WIDTH - 40)
@@ -1427,8 +1452,24 @@ class Settings:
             headline = tx("st_paused", time=resumes)
         else:
             headline = tx({"ok": "st_running", "off": "st_off",
+                           "partial": "st_partial",
                            "error": "st_error"}[state])
         self.status_line.configure(text=headline, fg=STATE_COLOUR[state])
+
+        # Coloured by what the failure actually was, not by the current state:
+        # switched off or paused, the app is grey, but the reason the last
+        # pulse went wrong is still amber or red.
+        problem = ENGINE.error or ""
+        if problem != self.status_problem.cget("text"):
+            self.status_problem.configure(text=problem)
+            if problem:
+                self.status_problem.pack(anchor="w", pady=(4, 0),
+                                         after=self.status_line)
+            else:
+                self.status_problem.pack_forget()
+        if problem:
+            self.status_problem.configure(
+                fg=STATE_COLOUR["partial" if ENGINE.partly else "error"])
 
         lines = []
         if ENGINE.last_wall is None:
@@ -1444,8 +1485,6 @@ class Settings:
         else:
             lines.append(tx("st_next", s=int(due)))
         lines.append(tx("st_count", n=ENGINE.count))
-        if ENGINE.error:
-            lines.append(ENGINE.error)
         self.status_detail.configure(text="\n".join(lines))
 
         # The pause runs out on its own. The drop-down would go on claiming
@@ -1473,7 +1512,7 @@ class Settings:
         if self.win is None or not self.win.winfo_exists():
             return
         now = time.monotonic()
-        error = None
+        error, partly = None, False
         playing = ENGINE.playing()
         if playing is not None:
             done, span = playing
@@ -1481,7 +1520,7 @@ class Settings:
             self.bar_full_until = now + 0.9
         elif now < self.bar_full_until:
             done = span = ENGINE.playing_span    # played, held full a moment
-            error = ENGINE.error
+            error, partly = ENGINE.error, ENGINE.partly
         elif now < self.bar_wait_until:
             done = span = 0.0                    # asked for, not started yet
         else:
@@ -1489,7 +1528,7 @@ class Settings:
                 bar.show(0.0, 0.0)               # back to an empty track
             return
         for bar in self.bars:
-            bar.show(done, span, error)
+            bar.show(done, span, error, partly)
         self.anim = self.win.after(40, self._animate)
 
     def _tick(self):

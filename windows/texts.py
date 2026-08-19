@@ -68,6 +68,7 @@ CS = {
     "st_off": "Vypnuto — impulzy se neposílají",
     "st_paused": "Pozastaveno, obnoví se v {time}",
     "st_error": "Poslední impulz se nepodařilo přehrát",
+    "st_partial": "Impulz šel jen na část reproduktorů",
     "st_last": "Poslední impulz: před {s} s ({time})",
     "st_last_never": "Poslední impulz: zatím žádný",
     "st_next": "Další impulz: za {s} s",
@@ -80,6 +81,8 @@ CS = {
     "bar_playing": "Impulz se přehrává… {done} / {total} s",
     "bar_done": "Impulz odeslán ({total} s)",
     "bar_failed": "Impulz se nepodařilo přehrát — podrobnosti nahoře ve Stavu.",
+    "bar_partial": "Impulz šel jen na část reproduktorů — podrobnosti nahoře "
+                   "ve Stavu.",
 
     # --- devices card --------------------------------------------------
     "card_devices": "Které reproduktory udržovat",
@@ -153,7 +156,8 @@ CS = {
                            "u hodin.",
     "err_no_device": "Není vybrané žádné zařízení — otevři Nastavení a vyber "
                      "reproduktory.",
-    "err_device_gone": "Zařízení „{name}“ není připojené.",
+    "err_device_gone": "Zařízení „{name}“ není připojené. Zapoj ho, nebo ho "
+                       "odškrtni v seznamu reproduktorů.",
     "err_play": "Přehrání na „{name}“ selhalo: {error}",
     "err_autostart": "Úlohu v Plánovači úloh se nepodařilo vytvořit. "
                      "Spouštění po přihlášení zůstává vypnuté.",
@@ -169,6 +173,7 @@ EN = {
     "st_off": "Switched off — no pulses are sent",
     "st_paused": "Paused, resumes at {time}",
     "st_error": "The last pulse could not be played",
+    "st_partial": "The pulse reached only some of the speakers",
     "st_last": "Last pulse: {s} s ago ({time})",
     "st_last_never": "Last pulse: none yet",
     "st_next": "Next pulse: in {s} s",
@@ -181,6 +186,8 @@ EN = {
     "bar_playing": "Pulse playing… {done} / {total} s",
     "bar_done": "Pulse sent ({total} s)",
     "bar_failed": "The pulse could not be played — see Status above.",
+    "bar_partial": "The pulse reached only some of the speakers — see Status "
+                   "above.",
 
     # --- devices card --------------------------------------------------
     "card_devices": "Which speakers to keep awake",
@@ -254,7 +261,8 @@ EN = {
                            "notification area next to the clock.",
     "err_no_device": "No device is selected — open Settings and pick your "
                      "speakers.",
-    "err_device_gone": "Device “{name}” is not connected.",
+    "err_device_gone": "Device “{name}” is not connected. Plug it in, or "
+                       "untick it in the list of speakers.",
     "err_play": "Playback on “{name}” failed: {error}",
     "err_autostart": "The task could not be created in Task Scheduler. "
                      "Starting at logon stays switched off.",

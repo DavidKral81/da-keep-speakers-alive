@@ -12,6 +12,10 @@ Usage:
     py tests\\preview.py            # wide (two columns) and narrow (one), cs
     py tests\\preview.py 900        # one width only
     py tests\\preview.py 1400 en    # the English version
+    py tests\\preview.py 1400 cs --problem
+                                    # ... showing a pulse that reached some
+                                    # speakers and not others, so the warning
+                                    # line can be looked at as well
 
 The images land in _output\\ next to the project.
 """
@@ -88,8 +92,10 @@ def _capture(window, path):
 
 def main():
     OUTPUT.mkdir(exist_ok=True)
-    widths = [int(sys.argv[1])] if len(sys.argv) > 1 else [1400, 720]
-    language = sys.argv[2] if len(sys.argv) > 2 else K.texts.language()
+    problem = "--problem" in sys.argv
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    widths = [int(args[0])] if args else [1400, 720]
+    language = args[1] if len(args) > 1 else K.texts.language()
     K.texts.set_language(language)
 
     # A pulse that never happened would leave the status card half empty -
@@ -97,6 +103,15 @@ def main():
     K.ENGINE.last_at = time.monotonic() - 12
     K.ENGINE.last_wall = datetime.now()
     K.ENGINE.count = 4
+
+    if problem:
+        # Exactly the situation the user reported: the system default output
+        # got the pulse, the saved USB speakers were unplugged. The headline
+        # must NOT claim the pulse failed, and the reason must be readable.
+        K.ENGINE.error = K.tx(
+            "err_device_gone",
+            name="Reproduktory (4 - USB Advanced Audio Device)")
+        K.ENGINE.partly = True
 
     # Closing the window remembers its size and position - and the sizes here
     # are made up for the shot. Without putting it back, the user's window
@@ -120,8 +135,12 @@ def main():
             K.ENGINE.playing_span = 2.0
             K.ENGINE.playing_from = time.monotonic() - 1.1
             settings._animate()
+            # The status card is refreshed by a once-a-second ticker, which
+            # may not have run yet when the shot is taken - ask for it.
+            settings._refresh_status()
             window.update()
-            name = f"preview-settings-{width}-{language}.png"
+            suffix = "-problem" if problem else ""
+            name = f"preview-settings-{width}-{language}{suffix}.png"
             print(f"{name}: {_capture(window, OUTPUT / name)}")
             # the bottom of the window - that is where content gets cut off
             # and unreachable. Scroll only AFTER the layout has settled.
@@ -129,7 +148,7 @@ def main():
             settings.canvas.yview_moveto(1.0)
             window.update()
             time.sleep(0.3)
-            name = f"preview-settings-{width}-{language}-bottom.png"
+            name = f"preview-settings-{width}-{language}{suffix}-bottom.png"
             print(f"{name}: {_capture(window, OUTPUT / name)}")
             K.ENGINE.playing_from = 0.0     # stop the faked pulse again
             settings.close()

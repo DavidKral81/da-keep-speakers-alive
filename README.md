@@ -97,7 +97,17 @@ overdue pulse goes out straight away.
 
 ## Running it
 
-No installer is published yet — for now it runs from source:
+Download `DaKeepSpeakersAlive-setup.exe` from
+[Releases](https://github.com/DavidKral81/da-keep-speakers-alive/releases/latest)
+and run it. It asks for administrator rights, installs into
+`C:\Program Files\Da Keep Speakers Alive`, and can set up the shortcuts and
+starting at logon. It speaks Czech and English — click a flag in the top right
+corner. Removing it later works from Settings → Apps, the ordinary way.
+
+The installer is not signed, so SmartScreen will warn on first run
+(More info → Run anyway).
+
+Or run it from source:
 
 ```powershell
 py -m venv .venv
@@ -125,7 +135,10 @@ Full instructions: [English manual](docs/___INFO-READ.txt) ·
 ```text
 windows\keep_alive.py    the whole app: engine, tray icon, settings window
 windows\texts.py         every text, Czech and English side by side
-windows\marks.py         hand-drawn checkboxes (the Tk ones are tiny)
+windows\marks.py         hand-drawn checkboxes and language flags (the Tk ones
+                         are tiny) - shared by the app AND the installer
+installer\installer.py   installer and uninstaller in one program
+installer\build_installer.ps1    packs both with PyInstaller
 tools\tune.py            measuring: --list, --tone, --keepalive, --check
 tests\                   see below
 ```
@@ -135,8 +148,15 @@ Before any release:
 ```powershell
 .venv\Scripts\python.exe tests\test_logic.py     the pulse, devices, texts, settings file
 .venv\Scripts\python.exe tests\test_window.py    branches normal use never reaches
+.venv\Scripts\python.exe tests\test_installer.py the whole install/uninstall cycle
 .venv\Scripts\python.exe tests\preview.py        renders the window to PNG - then look at it
+.venv\Scripts\python.exe tests\preview.py --installer    the same for the setup windows
 ```
+
+`test_installer.py` redirects every target into `%TEMP%` and an `HKCU` key, so
+it needs no administrator and never touches a real installation. It refuses to
+run while the app is up — it stops whatever holds the app's lock, and that
+would be your own copy.
 
 Both test files carry their own counter-cases: every check comes with a case
 that must make it complain, because a check nobody ever tried to break reads
@@ -157,8 +177,8 @@ to check whether the speakers dropped any.
 - **Inaudible is not guaranteed.** It depends on your speakers and your room.
   If you can hear it, lower the volume or the frequency — that is what the
   settings are for.
-- **No installer yet**, and when there is one it will be unsigned: SmartScreen
-  will warn on first run.
+- **The installer is unsigned**, so SmartScreen warns on first run. Signing
+  means a paid certificate.
 - **Three minutes is known to be enough, not known to be the maximum.** Longer
   intervals were never tested.
 

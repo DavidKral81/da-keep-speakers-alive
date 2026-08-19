@@ -25,3 +25,8 @@ _build/
 dist/
 build/
 *.spec
+
+# The built installer belongs in a GitHub release, not in the source history
+# (it is tens of MB and it is rebuilt from these sources anyway). Tied to the
+# NAME for the same reason as the patterns above.
+*-setup.exe

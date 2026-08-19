@@ -33,8 +33,36 @@ OBSAH
   1. SPUŠTĚNÍ
 ----------------------------------------------------------------
 
-Instalátor zatím není hotový, aplikace se spouští ze zdrojového
-kódu. Potřebuje Python 3.14 a Windows.
+A) INSTALÁTOR (běžný způsob)
+
+Stáhni  DaKeepSpeakersAlive-setup.exe  ze stránky projektu
+(Releases) a spusť ho. Vyžádá si práva správce a nainstaluje
+aplikaci do  C:\Program Files\Da Keep Speakers Alive.
+
+V okně instalace si vybereš:
+
+  - zástupce v nabídce Start
+  - zástupce na ploše
+  - spouštění po přihlášení do Windows
+
+Jazyk se přepíná vlaječkami vpravo nahoře, stejně jako v aplikaci.
+
+Odinstalace se dělá běžně přes Nastavení → Aplikace. V okně
+odinstalace je zaškrtávátko "Smazat i nastavení a log":
+
+  nezaškrtnuté (výchozí)  nastavení zůstane v %APPDATA%, takže
+                          po přeinstalování je všechno jako dřív
+  zaškrtnuté              smaže se i složka s nastavením a logem
+
+Instalátor není podepsaný, takže při prvním spuštění vyskočí
+varování SmartScreen — "Další informace" → "Přesto spustit".
+
+Python na počítači potřeba NENÍ, je zabalený uvnitř.
+
+
+B) ZE ZDROJOVÉHO KÓDU (pro vývoj)
+
+Potřebuje Python 3.14 a Windows.
 
   1. Ve složce projektu vytvoř virtuální prostředí a doinstaluj
      knihovny:
@@ -54,7 +82,8 @@ Kam se co ukládá:
   ze zdrojového kódu   nastavení i log leží vedle zdrojáků
                        (windows\config.json, windows\keep_alive.log)
   z instalace          %APPDATA%\Da Keep Speakers Alive
-                       (až instalátor vznikne)
+                       (odinstalace je tam nechá, takže se po
+                       přeinstalování nastavení neztratí)
 
 
 
@@ -320,15 +349,19 @@ VE SLOŽCE PROJEKTU (zdrojový kód)
 
   windows\keep_alive.py       celá aplikace (jádro, ikona, okno)
   windows\texts.py            všechny texty česky i anglicky
-  windows\marks.py            kreslená zaškrtávátka (ta systémová
-                              jsou titěrná)
+  windows\marks.py            kreslená zaškrtávátka a vlaječky
+                              jazyků (ta systémová jsou titěrná);
+                              používá je aplikace I instalátor
   windows\version.py          číslo verze a adresa projektu
   windows\config.default.json výchozí nastavení
   windows\icons\              ikony aplikace
+  installer\installer.py      instalátor i odinstalátor v jednom
+  installer\build_installer.ps1  sestavení .exe (PyInstaller)
   tools\tune.py               měřicí nástroj (viz oddíl 11)
   tools\make_icons.py         generátor ikon
   tests\test_logic.py         kontroly bez zvuku a bez okna
   tests\test_window.py        kontroly okna
+  tests\test_installer.py     celý cyklus instalace a odinstalace
   tests\preview.py            vykreslí okno do PNG
   docs\                       tyto návody
   start.bat                   spuštění aplikace
@@ -386,9 +419,21 @@ TESTY — SPUSTIT PŘED KAŽDÝM VYDÁNÍM
       spadnout. Kontrola, kterou nikdo nezkusil rozbít, vypadá
       v protokolu stejně jako kontrola, která nefunguje.
 
+  .venv\Scripts\python.exe tests\test_installer.py
+      celý cyklus instalace a odinstalace. Všechny cíle jsou
+      přesměrované do dočasné složky a do klíče HKCU, takže to
+      nepotřebuje práva správce a na skutečnou instalaci to
+      nesáhne. Když aplikace zrovna běží, test se ODMÍTNE spustit
+      — zastavuje totiž to, co drží zámek aplikace, a to by byla
+      tvoje běžící kopie. Nejdřív ji ukonči.
+
   .venv\Scripts\python.exe tests\preview.py
       vykreslí okno do PNG do složky _output\ — a pak se na to
       podívej vlastníma očima, v obou jazycích a v obou šířkách.
+
+  .venv\Scripts\python.exe tests\preview.py --installer
+      totéž pro okna instalátoru. Ta uživatel vidí jednou a už
+      nikdy, takže by si nikdo nevšiml, že vypadají špatně.
 
 DOKUD APLIKACE BĚŽÍ, DRŽÍ SLOŽKU PROJEKTU. Před přejmenováním nebo
 přesunem složky ji ukonči (nabídka u ikony → Ukončit aplikaci).

@@ -160,6 +160,80 @@ CS = {
     "err_play": "Přehrání na „{name}“ selhalo: {error}",
     "err_autostart": "Úlohu v Plánovači úloh se nepodařilo vytvořit. "
                      "Spouštění po přihlášení zůstává vypnuté.",
+
+    # --- installer -----------------------------------------------------
+    # The installer speaks out of THIS table, not out of a copy of its own -
+    # two tables would drift apart, and missing() then covers the installer
+    # too.
+    "ins_title_install": "{app} — instalace",
+    "ins_title_uninstall": "{app} — odinstalace",
+    "ins_subtitle": "Udržuje reproduktory vzhůru krátkým neslyšitelným "
+                    "impulzem.",
+    "ins_to_folder": "Aplikace se nainstaluje do:",
+    "ins_from_folder": "Aplikace se odinstaluje z:",
+    "ins_opt_startmenu": "Zástupce v nabídce Start",
+    "ins_opt_desktop": "Zástupce na ploše",
+    "ins_opt_autostart": "Spouštět po přihlášení do Windows",
+    "ins_btn_install": "Nainstalovat",
+    "ins_btn_uninstall": "Odinstalovat",
+    "ins_btn_close": "Zavřít",
+    "ins_btn_finish": "Dokončit",
+
+    # progress
+    "ins_stopping": "Ukončuji běžící aplikaci…",
+    "ins_copying": "Kopíruji soubory…",
+    "ins_startmenu": "Vytvářím zástupce v nabídce Start…",
+    "ins_desktop": "Vytvářím zástupce na ploše…",
+    "ins_registry": "Zapisuji do seznamu aplikací…",
+    "ins_task_on": "Nastavuji spouštění po přihlášení…",
+    "ins_task_off": "Ruším spouštění po přihlášení…",
+    "ins_checking": "Kontroluji výsledek…",
+    "ins_done": "Hotovo.",
+
+    # what did not work — the installer must never claim success instead
+    "ins_failed": "Nepodařilo se: {what}",
+    "ins_error": "Chyba: {error}",
+    "ins_err_copy": "Program se nepodařilo zkopírovat do cílové složky.",
+    "ins_prob_language": "předání jazyka aplikaci",
+    "ins_prob_startmenu": "zástupce v nabídce Start",
+    "ins_prob_desktop": "zástupce na ploše",
+    "ins_prob_program": "program v cílové složce",
+    "ins_prob_uninstaller": "odinstalátor",
+    # this one has to say what to do about it - the user cannot guess
+    "ins_prob_running": "běžící aplikaci se nepodařilo ukončit (ukonči ji "
+                        "u hodin a spusť instalaci znovu)",
+    "ins_prob_registry": "zápis do seznamu aplikací",
+    "ins_prob_task": "úloha v Plánovači",
+    "ins_prob_task_off": "zrušení spouštění po přihlášení (aplikace se bude "
+                         "dál spouštět sama)",
+
+    # result window
+    "ins_head_installed": "Nainstalováno",
+    "ins_head_uninstalled": "Odinstalováno",
+    "ins_ok_desc": "Aplikace běží jako ikona u hodin. Klikni na ni pravým "
+                   "tlačítkem, když chceš změnit nastavení.",
+    "ins_opt_launch": "Spustit {app}",
+    "ins_opt_manual": "Otevřít návod",
+    "ins_msg_admin": "Instalaci je potřeba spustit jako správce.",
+    "ins_msg_running": "Aplikace už běží — najdeš ji u hodin.",
+
+    # uninstall
+    "uni_opt_data": "Smazat i nastavení a log",
+    "uni_shortcuts": "Odstraňuji zástupce…",
+    "uni_registry": "Odstraňuji ze seznamu aplikací…",
+    "uni_data": "Mažu nastavení a log…",
+    "uni_files": "Mažu soubory programu…",
+    "uni_prob_files": "složka programu",
+    "uni_prob_task": "úloha v Plánovači (zkoušela by spouštět program, "
+                     "který už není)",
+    "uni_prob_data_elsewhere": "nastavení a log — leží v profilu "
+                               "přihlášeného uživatele, ne toho, pod kterým "
+                               "běží odinstalace; smaž složku "
+                               "%APPDATA%\\Da Keep Speakers Alive ručně",
+    "uni_partial": "Nepodařilo se odstranit: {what}",
+    "uni_ok_desc": "{app} je odinstalovaná. Díky za vyzkoušení.",
+    "uni_partial_desc": "{app} je odinstalovaná, ale něco na disku zůstalo. "
+                        "Zkus to smazat ručně po restartu počítače.",
 }
 
 EN = {
@@ -264,4 +338,75 @@ EN = {
     "err_play": "Playback on “{name}” failed: {error}",
     "err_autostart": "The task could not be created in Task Scheduler. "
                      "Starting at logon stays switched off.",
+
+    # --- installer -----------------------------------------------------
+    "ins_title_install": "{app} — setup",
+    "ins_title_uninstall": "{app} — uninstall",
+    "ins_subtitle": "Keeps speakers awake with a short inaudible pulse.",
+    "ins_to_folder": "The app will be installed into:",
+    "ins_from_folder": "The app will be removed from:",
+    "ins_opt_startmenu": "Shortcut in the Start menu",
+    "ins_opt_desktop": "Shortcut on the desktop",
+    "ins_opt_autostart": "Start when I log in to Windows",
+    "ins_btn_install": "Install",
+    "ins_btn_uninstall": "Uninstall",
+    "ins_btn_close": "Close",
+    "ins_btn_finish": "Finish",
+
+    # progress
+    "ins_stopping": "Stopping the running app…",
+    "ins_copying": "Copying files…",
+    "ins_startmenu": "Creating the Start menu shortcut…",
+    "ins_desktop": "Creating the desktop shortcut…",
+    "ins_registry": "Adding to the list of applications…",
+    "ins_task_on": "Setting up start at logon…",
+    "ins_task_off": "Removing start at logon…",
+    "ins_checking": "Checking the result…",
+    "ins_done": "Done.",
+
+    # what did not work — the installer must never claim success instead
+    "ins_failed": "Did not work: {what}",
+    "ins_error": "Error: {error}",
+    "ins_err_copy": "The program could not be copied into the target folder.",
+    "ins_prob_language": "handing the language to the app",
+    "ins_prob_startmenu": "the Start menu shortcut",
+    "ins_prob_desktop": "the desktop shortcut",
+    "ins_prob_program": "the program in the target folder",
+    "ins_prob_uninstaller": "the uninstaller",
+    # this one has to say what to do about it - the user cannot guess
+    "ins_prob_running": "the running app could not be stopped (quit it from "
+                        "the clock area and run setup again)",
+    "ins_prob_registry": "the entry in the list of applications",
+    "ins_prob_task": "the task in Task Scheduler",
+    "ins_prob_task_off": "removing start at logon (the app will keep starting "
+                         "on its own)",
+
+    # result window
+    "ins_head_installed": "Installed",
+    "ins_head_uninstalled": "Uninstalled",
+    "ins_ok_desc": "The app runs as an icon next to the clock. Right-click it "
+                   "whenever you want to change the settings.",
+    "ins_opt_launch": "Start {app}",
+    "ins_opt_manual": "Open the manual",
+    "ins_msg_admin": "Setup has to be run as an administrator.",
+    "ins_msg_running": "The app is already running — look for it next to the "
+                       "clock.",
+
+    # uninstall
+    "uni_opt_data": "Delete the settings and the log as well",
+    "uni_shortcuts": "Removing the shortcuts…",
+    "uni_registry": "Removing from the list of applications…",
+    "uni_data": "Deleting the settings and the log…",
+    "uni_files": "Deleting the program files…",
+    "uni_prob_files": "the program folder",
+    "uni_prob_task": "the task in Task Scheduler (it would keep trying to "
+                     "start a program that is gone)",
+    "uni_prob_data_elsewhere": "the settings and the log — they are in the "
+                               "profile of the logged-in user, not of the "
+                               "account running this uninstall; delete "
+                               "%APPDATA%\\Da Keep Speakers Alive by hand",
+    "uni_partial": "Could not remove: {what}",
+    "uni_ok_desc": "{app} has been uninstalled. Thanks for trying it.",
+    "uni_partial_desc": "{app} has been uninstalled, but something was left "
+                        "on disk. Try deleting it by hand after a restart.",
 }

@@ -37,8 +37,38 @@ CONTENTS
   1. GETTING IT RUNNING
 ----------------------------------------------------------------
 
-There is no installer yet, so it runs from source. It needs
-Python 3.14 and Windows.
+A) THE INSTALLER (the usual way)
+
+Download  DaKeepSpeakersAlive-setup.exe  from the project page
+(Releases) and run it. It asks for administrator rights and
+installs into  C:\Program Files\Da Keep Speakers Alive.
+
+The setup window lets you choose:
+
+  - a shortcut in the Start menu
+  - a shortcut on the desktop
+  - starting when you log in to Windows
+
+The language is switched with the flags in the top right corner,
+the same as in the app.
+
+To remove it later, use the ordinary Settings -> Apps. The
+uninstall window has a "Delete the settings and the log as well"
+tick box:
+
+  left off (default)   the settings stay in %APPDATA%, so a
+                       reinstall finds everything as it was
+  ticked               the settings and log folder goes too
+
+The installer is not signed, so SmartScreen warns the first time -
+"More info" -> "Run anyway".
+
+Python does NOT have to be on the machine, it is packed inside.
+
+
+B) FROM SOURCE (for development)
+
+It needs Python 3.14 and Windows.
 
   1. In the project folder, create a virtual environment and
      install the dependencies:
@@ -59,7 +89,8 @@ Where things are kept:
   run from source      settings and log sit next to the sources
                        (windows\config.json, windows\keep_alive.log)
   installed copy       %APPDATA%\Da Keep Speakers Alive
-                       (once an installer exists)
+                       (an uninstall leaves them there, so settings
+                       survive a reinstall)
 
 
 
@@ -334,15 +365,19 @@ IN THE PROJECT FOLDER (source)
 
   windows\keep_alive.py       the whole app (engine, icon, window)
   windows\texts.py            every text, Czech and English
-  windows\marks.py            hand-drawn checkboxes (the system
-                              ones are tiny)
+  windows\marks.py            hand-drawn checkboxes and language
+                              flags (the system ones are tiny);
+                              used by the app AND the installer
   windows\version.py          version number and project address
   windows\config.default.json shipped default settings
   windows\icons\              application icons
+  installer\installer.py      installer and uninstaller in one
+  installer\build_installer.ps1  builds the .exe (PyInstaller)
   tools\tune.py               the measuring rig (see section 11)
   tools\make_icons.py         icon generator
   tests\test_logic.py         checks with no sound and no window
   tests\test_window.py        window checks
+  tests\test_installer.py     the whole install/uninstall cycle
   tests\preview.py            renders the window to PNG
   docs\                       these manuals
   start.bat                   starts the app
@@ -400,9 +435,21 @@ TESTS - RUN BEFORE EVERY RELEASE
       MUST fail. A check nobody ever tried to break reads exactly
       like a check that does not work.
 
+  .venv\Scripts\python.exe tests\test_installer.py
+      the whole install/uninstall cycle. Every target is
+      redirected into a temp folder and an HKCU key, so it needs
+      no administrator and never touches a real installation. It
+      REFUSES to run while the app is up - it stops whatever holds
+      the app's lock, and that would be your own copy. Quit it
+      first.
+
   .venv\Scripts\python.exe tests\preview.py
       renders the window to PNG into _output\ - then look at it
       with your own eyes, in both languages and at both widths.
+
+  .venv\Scripts\python.exe tests\preview.py --installer
+      the same for the setup windows. A user sees those once and
+      never again, so nobody would notice they look wrong.
 
 WHILE THE APP IS RUNNING IT HOLDS THE PROJECT FOLDER. Quit it
 before renaming or moving the folder (icon menu -> Quit

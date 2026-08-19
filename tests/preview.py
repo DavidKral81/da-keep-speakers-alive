@@ -16,6 +16,11 @@ Usage:
                                     # ... showing a pulse that reached some
                                     # speakers and not others, so the warning
                                     # line can be looked at as well
+    py tests\\preview.py --installer
+                                    # the setup / uninstall / result windows,
+                                    # both languages - they are seen once by
+                                    # each user and never again, so nobody
+                                    # would notice they look wrong
 
 The images land in _output\\ next to the project.
 """
@@ -42,6 +47,10 @@ import keep_alive as K                                  # noqa: E402
 # started. So the settings file is pointed somewhere harmless and the user's
 # config.json is never written at all.
 K.CFG_PATH = Path(tempfile.gettempdir()) / "da-keep-speakers-alive-test.json"
+# The log goes with it. Opening the window can log (a test pulse, a language
+# switch), and those lines have no business in the app's own log - the same
+# rule the two test files follow.
+K.LOG_PATH = Path(tempfile.gettempdir()) / "da-keep-speakers-alive-test.log"
 
 PW_RENDERFULLCONTENT = 0x00000002
 OUTPUT = Path(__file__).resolve().parent.parent / "_output"
@@ -98,8 +107,59 @@ def _capture(window, path):
     return width, height
 
 
+def installer_shots():
+    """The installer's three windows, in both languages.
+
+    They live in installer\\installer.py but are drawn out of the same modules
+    as the app (marks.py for the checkboxes and the flags, texts.py for the
+    wording), so this is where they get looked at too - one place for "what
+    the user will see".
+
+    Each window is its own tk.Tk(), so they are built and destroyed one at a
+    time; two live Tk instances in one process do not get along.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "installer"))
+    import installer as I                                 # noqa: E402
+
+    # The window prints the folder it would install into. Left as the real
+    # one on purpose - a made-up path in the shot would hide it being too long
+    # for the card.
+    for language in ("cs", "en"):
+        I.texts.set_language(language)
+        for uninstalling, label in ((False, "setup"), (True, "uninstall")):
+            window = I.Window(uninstalling)
+            # a line of progress text, or the shot shows an empty gap where
+            # the longest message will sit
+            window.report(I.tx("ins_checking"))
+            window.r.update()
+            time.sleep(0.4)
+            name = f"preview-installer-{label}-{language}.png"
+            print(f"{name}: {_capture(window.r, OUTPUT / name)}")
+            window.r.destroy()
+
+        # The result window. Only the states that can REALLY happen: a failed
+        # installation never opens this window at all (Window.run returns
+        # early and leaves the first window up with the reason in it), so
+        # "installed, but not ok" would be a picture of nothing.
+        for uninstalling, all_ok, label in ((False, True, "installed"),
+                                            (True, True, "uninstalled"),
+                                            (True, False, "uninstalled-part")):
+            # the detail line the real run carries over from the first window
+            detail = ("" if all_ok
+                      else I.tx("uni_partial", what=I.tx("uni_prob_files")))
+            result = I.ResultWindow(uninstalling, all_ok, detail)
+            result.r.update()
+            time.sleep(0.4)
+            name = f"preview-installer-result-{label}-{language}.png"
+            print(f"{name}: {_capture(result.r, OUTPUT / name)}")
+            result.r.destroy()
+
+
 def main():
     OUTPUT.mkdir(exist_ok=True)
+    if "--installer" in sys.argv:
+        installer_shots()
+        return
     problem = "--problem" in sys.argv
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     widths = [int(args[0])] if args else [1400, 720]

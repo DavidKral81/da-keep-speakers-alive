@@ -83,7 +83,7 @@ An icon next to the clock, and a settings window behind it.
 - **Start when I log in to Windows** — registers a task in Task Scheduler.
 - **Pause for a while** — for when you need real silence, recording audio, say.
   It switches itself back on afterwards.
-- **Czech / English**, switched live.
+- **Czech / English**, switched live by the two flags in the top right corner.
 
 It **cannot be a Windows service.** Services run in session 0, where audio does
 not physically play. It has to be a normal user process — which also means a

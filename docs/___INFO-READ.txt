@@ -129,9 +129,13 @@ APPLICATION BEHAVIOUR
     Keep the speakers awake          the main switch
     Start when I log in to Windows   see section 7
     Write a log file
-    Language                         Czech / English, switches
-                                     immediately, including the
-                                     icon's menu
+
+LANGUAGE
+    The two flags in the top right corner of the window. It
+    switches immediately, including the icon's menu. The active
+    language is the one with the bar under its flag. The flags
+    do not scroll away with the content - they stay in the
+    corner.
 
 PAUSE FOR A WHILE
     15 minutes to 8 hours - for when you are recording audio, say.

@@ -122,9 +122,12 @@ CHOVÁNÍ APLIKACE
     Udržovat reproduktory vzhůru      hlavní vypínač
     Spouštět po přihlášení do Windows viz oddíl 7
     Zapisovat log do souboru
-    Jazyk                             čeština / angličtina, přepne
-                                      se hned, včetně nabídky
-                                      u ikony
+
+JAZYK
+    Vlaječkami vpravo nahoře v okně. Přepne se hned, včetně
+    nabídky u ikony. Aktivní jazyk pozná podle proužku pod
+    vlaječkou. Vlaječky se s obsahem neposouvají — zůstávají
+    v rohu.
 
 DOČASNĚ POZASTAVIT
     Na 15 minut až 8 hodin — třeba když nahráváš zvuk. Po uplynutí

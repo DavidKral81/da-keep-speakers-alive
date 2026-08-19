@@ -11,6 +11,7 @@ report as a check that does not work at all.
 
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -19,6 +20,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "windows"))
 
 import keep_alive as K                                  # noqa: E402
 import texts                                            # noqa: E402
+
+# The log belongs to the running app, not to a test run. Run from source the
+# app logs next to the sources, so without this the real keep_alive.log filled
+# up with lines nobody had caused. Redirecting it is better than switching
+# CFG["log"] off: the writing path stays covered, and the check below reads the
+# redirected file back to prove it.
+K.LOG_PATH = Path(tempfile.gettempdir()) / "da-keep-speakers-alive-test.log"
+K.LOG_PATH.unlink(missing_ok=True)
 
 FAILED = []
 
@@ -128,7 +137,7 @@ def test_pulse_failure_clears_the_bar():
     saved_play, saved_targets = K.play, K.targets
     saved_log, saved_error = K.CFG.get("log", True), engine.error
     try:
-        K.CFG["log"] = False            # no test noise in the real log file
+        K.CFG["log"] = True             # goes to the redirected file, not the app's
         K.targets = lambda devices=None: (
             [{"index": 0, "name": "Test device", "samplerate": 48000,
               "channels": 2}], [])
@@ -142,6 +151,14 @@ def test_pulse_failure_clears_the_bar():
               error and "refused" in error, str(error))
         check("and the bar goes back to idle", engine.playing() is None,
               str(engine.playing()))
+        # The failure has to survive as far as the file, not only as far as
+        # the return value - the log is where anyone looks first.
+        written = (K.LOG_PATH.read_text(encoding="utf-8")
+                   if K.LOG_PATH.exists() else "")
+        check("and it reached the log file, not just the return value",
+              "refused" in written, f"{K.LOG_PATH} holds {len(written)} chars")
+        check("which is NOT the app's own log",
+              K.LOG_PATH != K.DATA / "keep_alive.log", str(K.LOG_PATH))
     finally:
         K.play, K.targets = saved_play, saved_targets
         K.CFG["log"] = saved_log

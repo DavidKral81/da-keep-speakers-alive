@@ -19,6 +19,7 @@ change what the app does afterwards.
 
 import json
 import sys
+import tempfile
 import time
 import tkinter as tk
 from pathlib import Path
@@ -26,6 +27,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "windows"))
 
 import keep_alive as K                                  # noqa: E402
+
+# Same as in test_logic.py: driving the window writes "Setting 'freq_hz' = 20"
+# and "Language = en" for every knob it turns, and none of that belongs in the
+# log of the app the user is running. Redirected rather than switched off, so
+# the writing path is still exercised - the last step reads the file back.
+K.LOG_PATH = Path(tempfile.gettempdir()) / "da-keep-speakers-alive-test.log"
+K.LOG_PATH.unlink(missing_ok=True)
 
 BREAK_IT = "--break-it" in sys.argv
 FAILED = []
@@ -186,6 +194,16 @@ def main():
             assert settings.anim is None, "a callback outlived the window"
         step("closes, and the animation with it", closes)
         step("closing twice is harmless", settings.close)
+
+        def log_went_elsewhere():
+            # Both halves matter: the settings the run changed were written
+            # down somewhere (so logging still works), and that somewhere is
+            # not the log of the app the user has running.
+            written = (K.LOG_PATH.read_text(encoding="utf-8")
+                       if K.LOG_PATH.exists() else "")
+            assert "Setting" in written, f"nothing logged to {K.LOG_PATH}"
+            assert K.LOG_PATH != K.DATA / "keep_alive.log", str(K.LOG_PATH)
+        step("the run logged, but into its own file", log_went_elsewhere)
         root.destroy()
 
     root.after(600, run)

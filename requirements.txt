@@ -12,5 +12,15 @@ numpy==2.5.2          # generating the sine burst
 pystray==0.19.5       # icon in the notification area
 pillow==12.3.0        # icon drawing (also required by pystray)
 
-# Only needed to build the installer, not to run the app:
-# pyinstaller==6.22.1
+# Only needed to BUILD the installer, not to run the app. Left commented out
+# so a plain "pip install -r requirements.txt" stays small; install it by hand
+# when packaging:
+#
+#   .venv\Scripts\python.exe -m pip install pyinstaller==6.22.2
+#
+# pyinstaller==6.22.2          # pulls in altgraph and pefile by itself
+
+# The versions above are pinned on purpose. .venv is never committed - it is a
+# compiled copy of Python for one machine - so this file is the only record of
+# what the app was actually tested against, and an unpinned line would let a
+# future "pip install" fetch something that no longer works.

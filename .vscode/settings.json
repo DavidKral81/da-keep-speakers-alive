@@ -1,0 +1,20 @@
+{
+  // .venv is a compiled copy of Python - 2648 files that never change and
+  // that nobody searches. Without these, VS Code watches every one of them
+  // for edits and keeps them in its search index, which costs a lot and
+  // buys nothing. _output holds generated screenshots, __pycache__ compiled
+  // bytecode; neither is worth watching either.
+  "files.watcherExclude": {
+    "**/.venv/**": true,
+    "**/_output/**": true,
+    "**/__pycache__/**": true
+  },
+  "search.exclude": {
+    "**/.venv": true,
+    "**/_output": true,
+    "**/__pycache__": true
+  },
+  "files.exclude": {
+    "**/__pycache__": true
+  }
+}

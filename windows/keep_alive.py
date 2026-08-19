@@ -26,6 +26,7 @@ the session, so "works while the screen is locked" is satisfied anyway.
 
 import ctypes
 import json
+import math
 import os
 import re
 import subprocess
@@ -1565,16 +1566,49 @@ def find_output_chosen(name, chosen):
 
 # ---------------------------------------------------------------- tray icon
 
-def icon_image(color):
-    """A speaker with two sound waves - readable down to 16 px."""
-    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+def icon_image(color, size=64, shown_at=None):
+    """A speaker with sound waves - THE app icon, in one place.
+
+    The tray asks for it at 64 px; tools\\make_icons.py asks for it big and
+    saves it as keep_alive.ico, which is what the Start menu, the desktop
+    shortcut and the window title use. One drawing, because two of them is how
+    the tray and the Start menu came to look like two different programs
+    (David, 20.08.2026).
+
+    The geometry is written for 64 px and scaled from there, so asking for 64
+    gives exactly the numbers this icon always had.
+
+    shown_at: how big the result will actually be DISPLAYED, when that is not
+    `size` - a frame drawn at 4x and scaled down for smoothness. It decides
+    how much detail survives, which is not the same question as how many
+    pixels are being drawn on.
+    """
+    shown = shown_at or size
+
+    def p(v):
+        return v * size / 64
+
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    d.ellipse((2, 2, 62, 62), fill=color)
+    d.ellipse((p(2), p(2), p(62), p(62)), fill=color)
     white = (255, 255, 255, 255)
-    d.rectangle((17, 26, 25, 38), fill=white)                 # the box
-    d.polygon([(25, 26), (36, 16), (36, 48), (25, 38)], fill=white)  # the cone
-    d.arc((34, 20, 48, 44), 300, 60, fill=white, width=3)     # near wave
-    d.arc((34, 13, 55, 51), 305, 55, fill=white, width=3)     # far wave
+    # A wave thinner than about two DISPLAYED pixels comes out as a grey
+    # smear, so the line has a floor expressed in those pixels. At 64 and
+    # above it never bites (3 px there either way), which is why the tray icon
+    # is unchanged to the pixel.
+    stroke = max(math.ceil(p(3)), math.ceil(size * 2.2 / shown))
+    d.rectangle((p(17), p(26), p(25), p(38)), fill=white)      # the box
+    d.polygon([(p(25), p(26)), (p(36), p(16)),
+               (p(36), p(48)), (p(25), p(38))], fill=white)    # the cone
+    d.arc((p(34), p(20), p(48), p(44)), 300, 60,
+          fill=white, width=stroke)                            # near wave
+    # Below 40 displayed pixels the gap between the two waves is thinner than
+    # the waves themselves, so drawing both turns them into one blob - the
+    # small sizes get a single wave instead. Seen on a magnified sheet of
+    # every size, not calculated.
+    if shown >= 40:
+        d.arc((p(34), p(13), p(55), p(51)), 305, 55,
+              fill=white, width=stroke)                        # far wave
     return img
 
 

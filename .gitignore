@@ -1,0 +1,27 @@
+# Developer notes - these stay local. They hold internal material (work in
+# progress, notes from conversations, what is approved and what is not) that
+# does not belong on a public GitHub. Whatever has public value - measurements,
+# technical decisions and their reasons - goes into README.md and docs/.
+CLAUDE.md
+
+# Virtual environment - rebuilt from requirements.txt, never versioned.
+# It also breaks when the project folder is renamed; delete and recreate it.
+.venv/
+
+__pycache__/
+*.pyc
+
+# Written by the app while it runs. config.default.json is the versioned one.
+windows/config.json
+windows/keep_alive.log
+windows/keep_alive.log.1
+
+# Preview shots and other things the tools produce. Patterns are tied to the
+# NAME, not to a path - a folder that gets renamed would silently stop
+# matching a path pattern (1001 build files once made it into a commit that
+# way in the sister project).
+_output/
+_build/
+dist/
+build/
+*.spec

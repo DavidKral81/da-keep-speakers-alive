@@ -1,0 +1,16 @@
+# Da Keep Speakers Alive - Windows app
+# Tested on Python 3.14.4 (Windows 11).
+#
+#   py -m venv .venv
+#   .venv\Scripts\pip install -r requirements.txt
+#   start.bat
+#
+# tkinter is part of the standard library on Windows, no package needed.
+
+sounddevice==0.5.6    # PortAudio - playback through WASAPI
+numpy==2.5.2          # generating the sine burst
+pystray==0.19.5       # icon in the notification area
+pillow==12.3.0        # icon drawing (also required by pystray)
+
+# Only needed to build the installer, not to run the app:
+# pyinstaller==6.22.1

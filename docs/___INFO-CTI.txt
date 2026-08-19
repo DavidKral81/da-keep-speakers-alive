@@ -1,0 +1,405 @@
+================================================================
+  DA KEEP SPEAKERS ALIVE
+  Nenechá reproduktory usnout, takže neuřežou začátek zvuku.
+================================================================
+
+Napájené reproduktory se po pár minutách ticha samy vypnou a pak
+spolknou první sekundu nebo dvě toho, co pustíš — začátek videa,
+první slovo v hovoru, zvuk oznámení.
+
+Aplikace jim proto každých pár minut pošle KRÁTKÝ TÓN, tak hluboký
+a tichý, že ho neslyšíš, ale reproduktor ho pozná jako signál.
+
+Nedrží počítač vzhůru a neumí ho probudit. Běží jako ikona u hodin.
+
+
+OBSAH
+
+   1. SPUŠTĚNÍ
+   2. RYCHLÝ START
+   3. OKNO APLIKACE
+   4. IKONA U HODIN
+   5. JAKÝ IMPULZ POSÍLAT
+   6. KDYŽ TO PRASKÁ NEBO JE TO SLYŠET
+   7. SPOUŠTĚNÍ PŘI PŘIHLÁŠENÍ
+   8. KDYŽ NĚCO NEFUNGUJE
+   9. NASTAVENÍ V SOUBORU
+  10. SOUBORY
+  11. PRO VÝVOJ
+
+
+
+----------------------------------------------------------------
+  1. SPUŠTĚNÍ
+----------------------------------------------------------------
+
+Instalátor zatím není hotový, aplikace se spouští ze zdrojového
+kódu. Potřebuje Python 3.14 a Windows.
+
+  1. Ve složce projektu vytvoř virtuální prostředí a doinstaluj
+     knihovny:
+
+       py -m venv .venv
+       .venv\Scripts\python.exe -m pip install -r requirements.txt
+
+  2. Spusť  start.bat
+
+Aplikace nemá okno na ploše — objeví se jen ikona vpravo dole
+u hodin (možná pod šipkou skrytých ikon).
+
+  start.bat --show     rovnou otevře i okno nastavení
+
+Kam se co ukládá:
+
+  ze zdrojového kódu   nastavení i log leží vedle zdrojáků
+                       (windows\config.json, windows\keep_alive.log)
+  z instalace          %APPDATA%\Da Keep Speakers Alive
+                       (až instalátor vznikne)
+
+
+
+----------------------------------------------------------------
+  2. RYCHLÝ START
+----------------------------------------------------------------
+
+  1. Spusť  start.bat  a klepni na ikonu u hodin. Otevře se okno.
+
+  2. V sekci "Které reproduktory udržovat" vyber svoje reproduktory.
+     Buď nech zapnuté "Vždy výchozí zařízení systému" (to, co je
+     právě nastavené ve Windows), nebo si zaškrtni konkrétní výstup.
+     Obojí najednou jde taky.
+
+  3. Klepni na "Vyzkoušet impulz". Slyšet nic nebudeš — to je
+     správně. Pod tlačítkem se rozjede pruh, který ukáže, že impulz
+     opravdu šel ven. Kdyby se něco nepovedlo, zčervená a důvod je
+     nahoře ve "Stavu".
+
+  4. V sekci "Chování aplikace" zapni "Spouštět po přihlášení
+     do Windows".
+
+  Hotovo. Od téhle chvíle jde každé 3 minuty impulz a reproduktory
+  nemají důvod usnout.
+
+
+
+----------------------------------------------------------------
+  3. OKNO APLIKACE
+----------------------------------------------------------------
+
+Otevře se klepnutím na ikonu u hodin. Všechno je na jedné stránce;
+když je okno široké, nastavení se samo rozdělí do dvou sloupců.
+Okno si pamatuje velikost i polohu.
+
+STAV
+    Jestli se udržuje, kdy šel poslední impulz (a jak je to dlouho),
+    za jak dlouho půjde další a kolik jich bylo od spuštění.
+    Když se poslední impulz nepovedl, je tu i důvod.
+
+    Tlačítko "Poslat impulz teď" pošle impulz mimo pořadí.
+
+KTERÉ REPRODUKTORY UDRŽOVAT
+    Vždy výchozí zařízení systému
+        Posílá tam, kam právě hrají Windows. Když výstup přepneš,
+        aplikace to pozná sama.
+    Seznam výstupů
+        Zaškrtni jeden nebo víc. Zařízení se pamatuje podle NÁZVU,
+        ne podle pořadí, takže po přepojení USB do jiného portu
+        volba drží dál. Zařízení, které zrovna není připojené,
+        zůstane v seznamu s poznámkou "není připojené".
+    Načíst seznam zařízení znovu
+        Když jsi zrovna něco zapojil a není to vidět.
+
+JAK ČASTO POSÍLAT IMPULZ
+    30 sekund až 15 minut, výchozí 3 minuty. Interval musí být
+    kratší než doba, po které reproduktory usnou. Když přesto
+    usínají, zkrať ho.
+
+JAKÝ IMPULZ POSÍLAT
+    Frekvence, hlasitost a délka — podrobně v oddílu 5.
+    Tlačítko "Vyzkoušet impulz" a pruh pod ním.
+
+CHOVÁNÍ APLIKACE
+    Udržovat reproduktory vzhůru      hlavní vypínač
+    Spouštět po přihlášení do Windows viz oddíl 7
+    Zapisovat log do souboru
+    Jazyk                             čeština / angličtina, přepne
+                                      se hned, včetně nabídky
+                                      u ikony
+
+DOČASNĚ POZASTAVIT
+    Na 15 minut až 8 hodin — třeba když nahráváš zvuk. Po uplynutí
+    doby se to zapne samo; okno ani nabídka pak netvrdí, že je
+    pořád pozastaveno.
+
+Dole je odkaz na stránku projektu a tlačítko "Ukončit aplikaci".
+
+
+
+----------------------------------------------------------------
+  4. IKONA U HODIN
+----------------------------------------------------------------
+
+LEVÝ klik   otevře okno nastavení
+PRAVÝ klik  otevře nabídku
+
+Nabídka je zkratka pro rychlou změnu bez otevírání okna:
+
+  Udržovat reproduktory vzhůru
+  Poslat impulz teď
+  Pozastavit …               "Nepozastaveno" (zruší pozastavení),
+                             nebo 15 minut až 8 hodin
+  Nastavení…
+  Ukončit aplikaci
+
+"Poslat impulz teď" rozhýbe i pruh v okně, pokud je zrovna otevřené.
+
+
+
+----------------------------------------------------------------
+  5. JAKÝ IMPULZ POSÍLAT
+----------------------------------------------------------------
+
+Výchozí nastavení je  20 Hz · 1 % · 0,4 s · každé 3 minuty.
+
+Není to odhad. Naměřeno na reproduktorech Creative napájených ze
+zásuvky, připojených přes dok:
+
+  20 Hz při 1 % nebylo v tichém pokoji slyšet vůbec
+  impulz na POLOVIČNÍ hlasitosti (0,5 %), opakovaný po 3 minutách
+  po dobu 20 minut, udržel reproduktory vzhůru celou dobu
+
+Výchozí hodnota je tedy dvojnásobek toho, co při měření stačilo.
+Rezerva nic nestojí, protože ji stejně neslyšíš.
+
+CO SE DÁ NASTAVIT
+
+  Frekvence     5 až 100 Hz     čím níž, tím hůř slyšitelné
+  Hlasitost     0,1 až 10 %     % plného rozsahu (1 % = -40 dBFS)
+  Délka         0,1 až 2 s
+
+DVĚ VĚCI, KTERÉ STOJÍ ZA TO VĚDĚT
+
+  Okraje impulzu se plynule zesilují a zeslabují. Bez toho by tón
+  začínal a končil skokem, a skok je širokopásmový šum — lupnutí,
+  které je slyšet mnohem líp než samotný tón.
+
+  Impulz kratší než dvě celé vlny není tón, ale stejnosměrný skok,
+  který vazební kondenzátor v reproduktoru sežere. Okno na to
+  upozorní, jakmile se kombinace frekvence a délky dostane pod tuhle
+  hranici (třeba 5 Hz na 0,2 s).
+
+KDYŽ REPRODUKTORY PŘESTO USÍNAJÍ
+
+  Zkoušej v tomhle pořadí, vždycky jen jednu věc:
+    1. zkrátit interval (3 minuty → 2 minuty → 1 minuta)
+    2. zvýšit hlasitost (1 % → 2 %)
+    3. zvýšit frekvenci (20 Hz → 30 nebo 50 Hz)
+
+  Ověřené je, že kadence 3 minuty stačí. Jestli by stačil i delší
+  interval, zkoušené nebylo.
+
+
+
+----------------------------------------------------------------
+  6. KDYŽ TO PRASKÁ NEBO JE TO SLYŠET
+----------------------------------------------------------------
+
+SLYŠÍŠ TÓN
+    Sniž hlasitost, pak frekvenci. 20 Hz při 1 % je pod prahem
+    slyšitelnosti u většiny reproduktorů; menší reproduktory hluboké
+    tóny stejně nezahrají.
+
+PRASKÁ TO
+    Sniž hlasitost. Malý reproduktor, po kterém se chce 20 až 60 Hz
+    na 10 %, má vydat větší výchylku, než na jakou má membránu —
+    a to je slyšet jako praskání.
+
+    Že chyba není v samotném signálu, je změřené: tón nemá ořezané
+    špičky, nemá skok mezi vzorky, začíná i končí v nule a při
+    přehrávání nedochází k výpadkům bufferu. Zbývá tedy analogová
+    část — buď reproduktor, nebo převodník v doku.
+
+    Praskání ke konci impulzu bývá lupnutí při zavření zvukového
+    proudu. Pomůže kratší a tišší impulz.
+
+
+
+----------------------------------------------------------------
+  7. SPOUŠTĚNÍ PŘI PŘIHLÁŠENÍ
+----------------------------------------------------------------
+
+Zapíná se v okně, v sekci "Chování aplikace". Vytvoří se úloha
+v Plánovači úloh Windows s názvem "Da Keep Speakers Alive":
+
+  - spuštění 30 sekund po přihlášení
+  - restart při selhání: po 1 minutě, nejvýše 3x
+  - bez časového omezení běhu (jinak by ji Windows po 3 dnech
+    ukončily)
+  - běží i na baterii
+  - NEBUDÍ počítač (úloha nemá časový spouštěč a "probudit
+    počítač" je vypnuté — tahle aplikace nesmí být důvod,
+    proč se počítač zapne)
+
+Vypnutím přepínače se úloha smaže.
+
+Když se úlohu nepodaří vytvořit (třeba kvůli oprávnění), aplikace to
+NAHLÁSÍ a přepínač zůstane vypnutý. Záměrně se v takovém případě
+nedělá nic náhradního — podstrčit místo toho zástupce ve složce
+Po spuštění by znamenalo udělat něco jiného, než o co jsi žádal.
+
+Aplikace NEMŮŽE běžet jako služba Windows. Služby běží v relaci 0,
+kde zvuk fyzicky nehraje. Musí to být obyčejný uživatelský proces —
+což zároveň znamená, že zamčená obrazovka ani zhasnutý monitor
+ničemu nevadí, protože relaci neruší.
+
+
+
+----------------------------------------------------------------
+  8. KDYŽ NĚCO NEFUNGUJE
+----------------------------------------------------------------
+
+Nejdřív se podívej do "Stavu" v okně, pak do souboru
+keep_alive.log (kde leží, je v oddílu 10). Log je vždy anglicky.
+
+  "Zařízení „…" není připojené."
+      Vybraný výstup teď v systému není. Buď ho zapoj, nebo
+      v nastavení vyber jiný, nebo zapni "Vždy výchozí zařízení
+      systému". Typický případ: reproduktory na doku, ze kterého
+      je notebook vytažený.
+
+  "Není vybrané žádné zařízení"
+      Není zapnuté "Vždy výchozí zařízení systému" a v seznamu
+      není zaškrtnuté nic.
+
+  Reproduktory usínají dál
+      Zkrať interval, pak zvyš hlasitost — viz oddíl 5.
+
+  Impulz je slyšet, nebo praská
+      Viz oddíl 6.
+
+  Ikona není vidět
+      Bude schovaná pod šipkou skrytých ikon vpravo dole.
+
+  Aplikace nejde spustit dvakrát
+      Tak je to správně — druhý pokus jen oznámí, že už běží.
+
+  Reproduktor v seznamu chybí
+      "Načíst seznam zařízení znovu". Před každým impulzem se
+      seznam čte znovu i sám, takže nově zapojený výstup aplikace
+      pozná nejpozději při dalším impulzu.
+
+
+
+----------------------------------------------------------------
+  9. NASTAVENÍ V SOUBORU
+----------------------------------------------------------------
+
+Soubor  config.json  v datové složce. Všechno kromě jedné položky
+se dá pohodlněji nastavit v okně; přímo v souboru se mění jen
+tohle a po změně je nutný restart aplikace:
+
+  fade_s     jak dlouho trvá zesílení a zeslabení okraje impulzu
+             (výchozí 0,05 s). Záměrně to není v okně — kdo tomu
+             rozumí, najde to tady; kdo ne, tomu by to jen
+             přidalo možnost zkazit si zvuk lupáním.
+
+Ostatní klíče odpovídají položkám v okně.
+
+Soubor se čte i s BOM (Poznámkový blok ho přidává), zapisuje se
+bez něj. Když je poškozený, aplikace to napíše a použije výchozí
+hodnoty.
+
+
+
+----------------------------------------------------------------
+  10. SOUBORY
+----------------------------------------------------------------
+
+DATOVÁ SLOŽKA
+
+  ze zdrojového kódu   složka  windows\  v projektu
+  z instalace          %APPDATA%\Da Keep Speakers Alive
+
+      config.json          tvoje nastavení
+      keep_alive.log       záznam událostí, vždy anglicky
+                           (při 2 MB se odsune jako
+                           keep_alive.log.1)
+
+VE SLOŽCE PROJEKTU (zdrojový kód)
+
+  windows\keep_alive.py       celá aplikace (jádro, ikona, okno)
+  windows\texts.py            všechny texty česky i anglicky
+  windows\marks.py            kreslená zaškrtávátka (ta systémová
+                              jsou titěrná)
+  windows\version.py          číslo verze a adresa projektu
+  windows\config.default.json výchozí nastavení
+  windows\icons\              ikony aplikace
+  tools\tune.py               měřicí nástroj (viz oddíl 11)
+  tools\make_icons.py         generátor ikon
+  tests\test_logic.py         kontroly bez zvuku a bez okna
+  tests\test_window.py        kontroly okna
+  tests\preview.py            vykreslí okno do PNG
+  docs\                       tyto návody
+  start.bat                   spuštění aplikace
+  tune.bat                    spuštění měřicího nástroje
+  _output\                    výstupy nástrojů (náhledy)
+
+
+
+----------------------------------------------------------------
+  11. PRO VÝVOJ
+----------------------------------------------------------------
+
+PŘEPÍNAČE APLIKACE
+
+  start.bat --show            rovnou otevřít okno
+  start.bat --pulse           jeden impulz a konec (rychlá zkouška
+                              bez okna)
+  start.bat --autostart-on    zapnout spouštění po přihlášení
+  start.bat --autostart-off   vypnout
+  start.bat --quit-after N    sám skončit po N sekundách (testy)
+  start.bat --no-dialog       nikdy neukazovat okénko s hláškou
+                              (testy)
+
+MĚŘICÍ NÁSTROJ
+
+  tune.bat --list
+      vypíše výstupy i s čísly
+
+  tune.bat --tone --device 23 --freq 20 --amp 1.0 --repeat 3
+      přehraje tón — slyšíš ho?
+
+  tune.bat --keepalive --device 23 --freq 20 --amp 1.0
+           --interval 180 --minutes 20
+      pustí udržovací cyklus na zadanou dobu
+
+  tune.bat --check --device 23
+      přehraje řadu slyšitelných pípnutí. Kolik jich chybí na
+      začátku, tolik jich reproduktor prospal.
+
+  Postup měření: --check po deseti minutách ticha (kolik pípnutí
+  chybí?) → --keepalive na 20 minut → hned poté zase --check
+  (slyšíš teď všechna?).
+
+TESTY — SPUSTIT PŘED KAŽDÝM VYDÁNÍM
+
+  .venv\Scripts\python.exe tests\test_logic.py
+      impulz, indikátor, výběr zařízení, soubor nastavení, texty
+
+  .venv\Scripts\python.exe tests\test_window.py
+      větve, které běžný provoz nespustí (přepnutí jazyka, pauza,
+      kolečko myši, dvojí zavření)
+
+  .venv\Scripts\python.exe tests\test_window.py --break-it
+      znovu zavede dvě skutečné, dřív odeslané chyby — běh MUSÍ
+      spadnout. Kontrola, kterou nikdo nezkusil rozbít, vypadá
+      v protokolu stejně jako kontrola, která nefunguje.
+
+  .venv\Scripts\python.exe tests\preview.py
+      vykreslí okno do PNG do složky _output\ — a pak se na to
+      podívej vlastníma očima, v obou jazycích a v obou šířkách.
+
+DOKUD APLIKACE BĚŽÍ, DRŽÍ SLOŽKU PROJEKTU. Před přejmenováním nebo
+přesunem složky ji ukonči (nabídka u ikony → Ukončit aplikaci).
+Virtuální prostředí .venv se přejmenováním složky rozbije — pak ho
+smaž a vytvoř znovu.

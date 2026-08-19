@@ -1,0 +1,419 @@
+================================================================
+  DA KEEP SPEAKERS ALIVE
+  Stops your speakers falling asleep and cutting off the start
+  of every sound.
+================================================================
+
+Powered speakers switch themselves off after a few minutes of
+silence, and then swallow the first second or two of whatever you
+play next - the start of a video, the first word of a call, a
+notification sound.
+
+So this app sends them a SHORT TONE every few minutes, so low and
+so quiet that you cannot hear it, yet the speaker recognises it as
+a signal.
+
+It does not keep the computer awake and it cannot wake it up. It
+runs as an icon next to the clock.
+
+
+CONTENTS
+
+   1. GETTING IT RUNNING
+   2. QUICK START
+   3. THE WINDOW
+   4. THE ICON NEXT TO THE CLOCK
+   5. WHAT THE PULSE IS
+   6. IF YOU CAN HEAR IT, OR IF IT CRACKLES
+   7. STARTING AT LOGON
+   8. WHEN SOMETHING DOES NOT WORK
+   9. SETTINGS IN THE FILE
+  10. FILES
+  11. FOR DEVELOPMENT
+
+
+
+----------------------------------------------------------------
+  1. GETTING IT RUNNING
+----------------------------------------------------------------
+
+There is no installer yet, so it runs from source. It needs
+Python 3.14 and Windows.
+
+  1. In the project folder, create a virtual environment and
+     install the dependencies:
+
+       py -m venv .venv
+       .venv\Scripts\python.exe -m pip install -r requirements.txt
+
+  2. Run  start.bat
+
+The app has no window on the desktop - only an icon at the bottom
+right, next to the clock (possibly hidden under the arrow for
+hidden icons).
+
+  start.bat --show     opens the settings window straight away
+
+Where things are kept:
+
+  run from source      settings and log sit next to the sources
+                       (windows\config.json, windows\keep_alive.log)
+  installed copy       %APPDATA%\Da Keep Speakers Alive
+                       (once an installer exists)
+
+
+
+----------------------------------------------------------------
+  2. QUICK START
+----------------------------------------------------------------
+
+  1. Run  start.bat  and click the icon next to the clock. The
+     window opens.
+
+  2. Under "Which speakers to keep awake", pick your speakers.
+     Either leave "Always the system default device" on (whatever
+     Windows is set to right now), or tick a specific output.
+     Both at once is fine too.
+
+  3. Click "Try a pulse". You will not hear anything - that is
+     the point. A bar under the button shows that the pulse really
+     went out. If something went wrong it turns red and the reason
+     is up in "Status".
+
+  4. Under "Application behaviour", turn on "Start when I log in
+     to Windows".
+
+  Done. From now on a pulse goes out every 3 minutes and the
+  speakers have no reason to fall asleep.
+
+
+
+----------------------------------------------------------------
+  3. THE WINDOW
+----------------------------------------------------------------
+
+Opens by clicking the icon next to the clock. Everything is on one
+page; when the window is wide, the settings split into two columns
+by themselves. The window remembers its size and position.
+
+STATUS
+    Whether it is keeping the speakers awake, when the last pulse
+    went out (and how long ago), when the next one is due and how
+    many there have been since the app started. When the last
+    pulse failed, the reason is here.
+
+    "Send a pulse now" sends one out of turn.
+
+WHICH SPEAKERS TO KEEP AWAKE
+    Always the system default device
+        Sends to wherever Windows is playing right now. Switch the
+        output and the app notices on its own.
+    The list of outputs
+        Tick one or more. A device is remembered by NAME, not by
+        position, so the choice survives plugging the USB into
+        another port. A device that is not connected at the moment
+        stays in the list, marked "(not connected)".
+    Reload the list of devices
+        For when you have just plugged something in.
+
+HOW OFTEN TO SEND A PULSE
+    30 seconds to 15 minutes, 3 minutes by default. The interval
+    has to be shorter than the time your speakers take to fall
+    asleep. If they still do, shorten it.
+
+WHAT THE PULSE SOUNDS LIKE
+    Frequency, volume, length - see section 5. Plus the "Try a
+    pulse" button and the bar under it.
+
+APPLICATION BEHAVIOUR
+    Keep the speakers awake          the main switch
+    Start when I log in to Windows   see section 7
+    Write a log file
+    Language                         Czech / English, switches
+                                     immediately, including the
+                                     icon's menu
+
+PAUSE FOR A WHILE
+    15 minutes to 8 hours - for when you are recording audio, say.
+    It switches itself back on afterwards; neither the window nor
+    the menu goes on claiming it is still paused.
+
+At the bottom: a link to the project page and a "Quit application"
+button.
+
+
+
+----------------------------------------------------------------
+  4. THE ICON NEXT TO THE CLOCK
+----------------------------------------------------------------
+
+LEFT click   opens the settings window
+RIGHT click  opens the menu
+
+The menu is a shortcut for a quick change without opening the
+window:
+
+  Keep the speakers awake
+  Send a pulse now
+  Pause …                    "Not paused" (cancels a pause),
+                             or 15 minutes to 8 hours
+  Settings…
+  Quit application
+
+"Send a pulse now" also drives the bar in the window, if it
+happens to be open.
+
+
+
+----------------------------------------------------------------
+  5. WHAT THE PULSE IS
+----------------------------------------------------------------
+
+The default is  20 Hz · 1 % · 0.4 s · every 3 minutes.
+
+That is measured, not guessed. On mains-powered Creative speakers
+connected through a dock:
+
+  20 Hz at 1 % was not audible at all in a quiet room
+  a pulse at HALF that volume (0.5 %), repeated every 3 minutes
+  for 20 minutes, kept the speakers awake the whole time
+
+So the default is twice what proved enough. The headroom costs
+nothing, because you cannot hear it anyway.
+
+WHAT YOU CAN CHANGE
+
+  Frequency     5 to 100 Hz     the lower, the harder to hear
+  Volume        0.1 to 10 %     % of full scale (1 % = -40 dBFS)
+  Length        0.1 to 2 s
+
+TWO THINGS WORTH KNOWING
+
+  The edges of the pulse fade in and out. Without that the tone
+  would start and end on a step, and a step is broadband noise -
+  a click you hear far better than the tone itself.
+
+  A pulse shorter than two full waves is not a tone but a DC step,
+  which the speaker's coupling capacitor eats. The window warns you
+  as soon as your combination of frequency and length falls below
+  that line (5 Hz at 0.2 s, for instance).
+
+IF THE SPEAKERS STILL FALL ASLEEP
+
+  Try these in order, changing one thing at a time:
+    1. shorten the interval (3 min -> 2 min -> 1 min)
+    2. raise the volume (1 % -> 2 %)
+    3. raise the frequency (20 Hz -> 30 or 50 Hz)
+
+  What is verified is that a 3-minute cadence is enough. Whether a
+  longer interval would also do was never tested.
+
+
+
+----------------------------------------------------------------
+  6. IF YOU CAN HEAR IT, OR IF IT CRACKLES
+----------------------------------------------------------------
+
+YOU CAN HEAR THE TONE
+    Lower the volume first, then the frequency. 20 Hz at 1 % is
+    below the threshold of hearing on most speakers; smaller
+    speakers cannot reproduce low tones anyway.
+
+IT CRACKLES
+    Lower the volume. A small speaker asked for 20 to 60 Hz at
+    10 % is being asked for more cone excursion than it has, and
+    that is what you hear.
+
+    That the fault is not in the signal itself has been measured:
+    the tone is not clipped, has no discontinuity between samples,
+    starts and ends at zero, and playback shows no buffer
+    underruns. What is left is the analog end - the speaker, or
+    the converter in the dock.
+
+    Crackling at the very end of the pulse is usually the click of
+    the audio stream being closed. A shorter and quieter pulse
+    helps.
+
+
+
+----------------------------------------------------------------
+  7. STARTING AT LOGON
+----------------------------------------------------------------
+
+Turned on in the window, under "Application behaviour". It creates
+a task in Windows Task Scheduler named "Da Keep Speakers Alive":
+
+  - starts 30 seconds after logon
+  - restart on failure: after 1 minute, at most 3 times
+  - no execution time limit (otherwise Windows would kill it after
+    3 days)
+  - runs on battery too
+  - DOES NOT WAKE the computer (the task has no time trigger and
+    "wake the computer to run this task" is off - this app must
+    never be a reason for the machine to switch itself on)
+
+Turning the switch off deletes the task.
+
+If the task cannot be created (permissions, say), the app SAYS SO
+and the switch stays off. Nothing is substituted on purpose -
+quietly dropping a shortcut into the Startup folder instead would
+mean doing something other than what you asked for.
+
+The app CANNOT run as a Windows service. Services run in session 0,
+where audio does not physically play. It has to be an ordinary user
+process - which also means a locked screen or a blanked monitor
+changes nothing, because neither ends your session.
+
+
+
+----------------------------------------------------------------
+  8. WHEN SOMETHING DOES NOT WORK
+----------------------------------------------------------------
+
+Look at "Status" in the window first, then at keep_alive.log
+(section 10 says where it is). The log is always in English.
+
+  "Device ".." is not connected."
+      The chosen output is not in the system right now. Plug it
+      in, pick another one in the settings, or turn on "Always the
+      system default device". The typical case: speakers on a dock
+      the laptop has been unplugged from.
+
+  "No device is selected"
+      "Always the system default device" is off and nothing is
+      ticked in the list.
+
+  The speakers still fall asleep
+      Shorten the interval, then raise the volume - see section 5.
+
+  The pulse is audible, or it crackles
+      See section 6.
+
+  The icon is not there
+      It will be hidden under the arrow for hidden icons at the
+      bottom right.
+
+  The app will not start twice
+      That is correct - the second attempt only says it is already
+      running.
+
+  A speaker is missing from the list
+      "Reload the list of devices". The list is also re-read before
+      every pulse, so a newly plugged-in output is noticed at the
+      next pulse at the latest.
+
+
+
+----------------------------------------------------------------
+  9. SETTINGS IN THE FILE
+----------------------------------------------------------------
+
+The file  config.json  in the data folder. Everything except one
+item is easier to set in the window; only this one is changed in
+the file, and the app has to be restarted afterwards:
+
+  fade_s     how long the edges of the pulse take to fade in and
+             out (0.05 s by default). Deliberately not in the
+             window - whoever understands it will find it here,
+             and whoever does not would only gain a way to make
+             the pulse click.
+
+The other keys match the items in the window.
+
+The file is read even with a BOM (Notepad adds one), and written
+without one. If it is damaged, the app says so and uses the
+defaults.
+
+
+
+----------------------------------------------------------------
+  10. FILES
+----------------------------------------------------------------
+
+DATA FOLDER
+
+  run from source      the  windows\  folder in the project
+  installed copy       %APPDATA%\Da Keep Speakers Alive
+
+      config.json          your settings
+      keep_alive.log       event log, always in English (at 2 MB
+                           it is moved aside as keep_alive.log.1)
+
+IN THE PROJECT FOLDER (source)
+
+  windows\keep_alive.py       the whole app (engine, icon, window)
+  windows\texts.py            every text, Czech and English
+  windows\marks.py            hand-drawn checkboxes (the system
+                              ones are tiny)
+  windows\version.py          version number and project address
+  windows\config.default.json shipped default settings
+  windows\icons\              application icons
+  tools\tune.py               the measuring rig (see section 11)
+  tools\make_icons.py         icon generator
+  tests\test_logic.py         checks with no sound and no window
+  tests\test_window.py        window checks
+  tests\preview.py            renders the window to PNG
+  docs\                       these manuals
+  start.bat                   starts the app
+  tune.bat                    starts the measuring rig
+  _output\                    tool output (preview shots)
+
+
+
+----------------------------------------------------------------
+  11. FOR DEVELOPMENT
+----------------------------------------------------------------
+
+COMMAND LINE SWITCHES
+
+  start.bat --show            open the window straight away
+  start.bat --pulse           one pulse, then quit (a quick check
+                              with no window)
+  start.bat --autostart-on    turn on starting at logon
+  start.bat --autostart-off   turn it off
+  start.bat --quit-after N    quit on its own after N seconds
+                              (for the tests)
+  start.bat --no-dialog       never show a message box (tests)
+
+THE MEASURING RIG
+
+  tune.bat --list
+      lists the outputs with their numbers
+
+  tune.bat --tone --device 23 --freq 20 --amp 1.0 --repeat 3
+      plays the tone - can you hear it?
+
+  tune.bat --keepalive --device 23 --freq 20 --amp 1.0
+           --interval 180 --minutes 20
+      runs a keep-alive cycle for as long as you say
+
+  tune.bat --check --device 23
+      plays a series of audible beeps. However many are missing
+      from the start is how many the speaker slept through.
+
+  The measuring procedure: --check after ten minutes of silence
+  (how many beeps are missing?) -> --keepalive for 20 minutes ->
+  --check again straight afterwards (do you hear them all now?).
+
+TESTS - RUN BEFORE EVERY RELEASE
+
+  .venv\Scripts\python.exe tests\test_logic.py
+      the pulse, the bar, device matching, the settings file, texts
+
+  .venv\Scripts\python.exe tests\test_window.py
+      branches normal use never reaches (language switch, pause,
+      mouse wheel, closing twice)
+
+  .venv\Scripts\python.exe tests\test_window.py --break-it
+      puts two real, previously-shipped bugs back in - the run
+      MUST fail. A check nobody ever tried to break reads exactly
+      like a check that does not work.
+
+  .venv\Scripts\python.exe tests\preview.py
+      renders the window to PNG into _output\ - then look at it
+      with your own eyes, in both languages and at both widths.
+
+WHILE THE APP IS RUNNING IT HOLDS THE PROJECT FOLDER. Quit it
+before renaming or moving the folder (icon menu -> Quit
+application). The .venv virtual environment breaks when the folder
+is renamed - delete it and create it again.

@@ -1,0 +1,35 @@
+{
+  "_": "Da Keep Speakers Alive - shipped default settings. The installed app",
+  "__": "copies this file to %APPDATA%\\Da Keep Speakers Alive\\config.json on",
+  "___": "its first start. Keys beginning with an underscore are comments.",
+
+  "_active": "false = the app runs but sends nothing.",
+  "active": true,
+
+  "_use_default_device": "Follow whatever output Windows is set to right now.",
+  "use_default_device": true,
+
+  "_devices": "Extra outputs by NAME, e.g. [\"Speakers (4 - USB Audio)\"].",
+  "devices": [],
+
+  "_interval_s": "Seconds between pulses. Shorter than the speaker's standby.",
+  "interval_s": 180,
+
+  "_freq_hz": "Pulse frequency. 20 Hz is below what a person hears as a tone.",
+  "freq_hz": 20,
+
+  "_amp_percent": "Volume in % of full scale. 1 % = -40 dBFS.",
+  "amp_percent": 1.0,
+
+  "_duration_s": "Pulse length. Must fit at least two full waves of freq_hz.",
+  "duration_s": 0.4,
+
+  "_fade_s": "Fade in/out. Without it the burst clicks - do not set to 0.",
+  "fade_s": 0.05,
+
+  "_language": "cs or en.",
+  "language": "cs",
+
+  "_log": "false = do not write keep_alive.log.",
+  "log": true
+}

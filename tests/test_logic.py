@@ -21,13 +21,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "windows"))
 import keep_alive as K                                  # noqa: E402
 import texts                                            # noqa: E402
 
-# The log belongs to the running app, not to a test run. Run from source the
-# app logs next to the sources, so without this the real keep_alive.log filled
-# up with lines nobody had caused. Redirecting it is better than switching
-# CFG["log"] off: the writing path stays covered, and the check below reads the
-# redirected file back to prove it.
+# Neither the log nor the settings belong to a test run. Run from source the
+# app keeps both next to the sources, so a test run wrote into the real log and
+# could save the real config.json - and if the app happened to be running, that
+# save would put back the settings as they were when the test started, undoing
+# whatever the user had just changed in the window.
+#
+# Redirecting is better than switching the writing off: both paths stay
+# covered, and the checks below read the redirected files back to prove it.
 K.LOG_PATH = Path(tempfile.gettempdir()) / "da-keep-speakers-alive-test.log"
 K.LOG_PATH.unlink(missing_ok=True)
+K.CFG_PATH = Path(tempfile.gettempdir()) / "da-keep-speakers-alive-test.json"
 
 FAILED = []
 
@@ -248,7 +252,7 @@ def test_what_a_missing_device_reports():
         check("nothing played, so this is a real failure",
               engine.state() == "error", engine.state())
 
-        # The case David hit: the default device DID get the pulse, one saved
+        # The reported case: the default device DID get the pulse, one saved
         # device did not - and the window announced "the last pulse could not
         # be played", which is simply untrue.
         K.CFG["devices"] = [gone]

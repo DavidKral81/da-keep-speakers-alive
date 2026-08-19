@@ -164,15 +164,10 @@ Nabídka je zkratka pro rychlou změnu bez otevírání okna:
 
 Výchozí nastavení je  20 Hz · 1 % · 0,4 s · každé 3 minuty.
 
-Není to odhad. Naměřeno na reproduktorech Creative napájených ze
-zásuvky, připojených přes dok:
-
-  20 Hz při 1 % nebylo v tichém pokoji slyšet vůbec
-  impulz na POLOVIČNÍ hlasitosti (0,5 %), opakovaný po 3 minutách
-  po dobu 20 minut, udržel reproduktory vzhůru celou dobu
-
-Výchozí hodnota je tedy dvojnásobek toho, co při měření stačilo.
-Rezerva nic nestojí, protože ji stejně neslyšíš.
+Není to odhad, ale výsledek měření: při 20 Hz a 1 % nebyl impulz
+v tichém pokoji slyšet, a k udržení reproduktorů vzhůru stačila
+i poloviční hlasitost. Výchozí hodnota je tedy dvojnásobek
+potřebného — rezerva nic nestojí, protože ji stejně neslyšíš.
 
 CO SE DÁ NASTAVIT
 
@@ -213,17 +208,10 @@ SLYŠÍŠ TÓN
     tóny stejně nezahrají.
 
 PRASKÁ TO
-    Sniž hlasitost. Malý reproduktor, po kterém se chce 20 až 60 Hz
-    na 10 %, má vydat větší výchylku, než na jakou má membránu —
-    a to je slyšet jako praskání.
-
-    Že chyba není v samotném signálu, je změřené: tón nemá ořezané
-    špičky, nemá skok mezi vzorky, začíná i končí v nule a při
-    přehrávání nedochází k výpadkům bufferu. Zbývá tedy analogová
-    část — buď reproduktor, nebo převodník v doku.
-
-    Praskání ke konci impulzu bývá lupnutí při zavření zvukového
-    proudu. Pomůže kratší a tišší impulz.
+    Sniž hlasitost, případně zvyš frekvenci. Hluboký tón nahlas
+    chce po malém reproduktoru větší výchylku, než na jakou má
+    membránu. Při výchozím nastavení (20 Hz / 1 %) k tomu
+    nedochází.
 
 
 

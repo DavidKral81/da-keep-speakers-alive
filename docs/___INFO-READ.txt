@@ -175,15 +175,11 @@ happens to be open.
 
 The default is  20 Hz · 1 % · 0.4 s · every 3 minutes.
 
-That is measured, not guessed. On mains-powered Creative speakers
-connected through a dock:
-
-  20 Hz at 1 % was not audible at all in a quiet room
-  a pulse at HALF that volume (0.5 %), repeated every 3 minutes
-  for 20 minutes, kept the speakers awake the whole time
-
-So the default is twice what proved enough. The headroom costs
-nothing, because you cannot hear it anyway.
+That is measured, not guessed: at 20 Hz and 1 % the pulse was not
+audible in a quiet room, and half that volume was already enough
+to keep the speakers from switching off. So the default is twice
+what proved necessary - the headroom costs nothing, because you
+cannot hear it anyway.
 
 WHAT YOU CAN CHANGE
 
@@ -224,19 +220,10 @@ YOU CAN HEAR THE TONE
     speakers cannot reproduce low tones anyway.
 
 IT CRACKLES
-    Lower the volume. A small speaker asked for 20 to 60 Hz at
-    10 % is being asked for more cone excursion than it has, and
-    that is what you hear.
-
-    That the fault is not in the signal itself has been measured:
-    the tone is not clipped, has no discontinuity between samples,
-    starts and ends at zero, and playback shows no buffer
-    underruns. What is left is the analog end - the speaker, or
-    the converter in the dock.
-
-    Crackling at the very end of the pulse is usually the click of
-    the audio stream being closed. A shorter and quieter pulse
-    helps.
+    Lower the volume, or raise the frequency. A low tone played
+    loudly asks a small speaker for more cone excursion than it
+    has. At the default setting (20 Hz / 1 %) this does not
+    happen.
 
 
 

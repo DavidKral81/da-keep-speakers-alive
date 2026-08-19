@@ -28,12 +28,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "windows"))
 
 import keep_alive as K                                  # noqa: E402
 
-# Same as in test_logic.py: driving the window writes "Setting 'freq_hz' = 20"
-# and "Language = en" for every knob it turns, and none of that belongs in the
-# log of the app the user is running. Redirected rather than switched off, so
-# the writing path is still exercised - the last step reads the file back.
+# Same as in test_logic.py. Driving the window turns every knob there is, and
+# each turn is both a log line and a saved config.json - neither of which
+# belongs to the app the user is running. The settings file matters most here:
+# this test SAVES at the end, and with the app running that save would put its
+# own starting snapshot back over whatever the user changed meanwhile.
+#
+# Redirected rather than switched off, so the writing path is still exercised -
+# the last step reads both files back.
 K.LOG_PATH = Path(tempfile.gettempdir()) / "da-keep-speakers-alive-test.log"
 K.LOG_PATH.unlink(missing_ok=True)
+K.CFG_PATH = Path(tempfile.gettempdir()) / "da-keep-speakers-alive-test.json"
 
 BREAK_IT = "--break-it" in sys.argv
 FAILED = []
@@ -195,15 +200,18 @@ def main():
         step("closes, and the animation with it", closes)
         step("closing twice is harmless", settings.close)
 
-        def log_went_elsewhere():
-            # Both halves matter: the settings the run changed were written
-            # down somewhere (so logging still works), and that somewhere is
-            # not the log of the app the user has running.
+        def wrote_elsewhere():
+            # Both halves matter for each file: it really was written (so the
+            # writing path is covered) and it is not the file belonging to the
+            # app the user has running.
             written = (K.LOG_PATH.read_text(encoding="utf-8")
                        if K.LOG_PATH.exists() else "")
             assert "Setting" in written, f"nothing logged to {K.LOG_PATH}"
             assert K.LOG_PATH != K.DATA / "keep_alive.log", str(K.LOG_PATH)
-        step("the run logged, but into its own file", log_went_elsewhere)
+            assert K.CFG_PATH.exists(), f"nothing saved to {K.CFG_PATH}"
+            assert K.CFG_PATH != K.DATA / "config.json", str(K.CFG_PATH)
+        step("the run wrote its log and settings into its own files",
+             wrote_elsewhere)
         root.destroy()
 
     root.after(600, run)

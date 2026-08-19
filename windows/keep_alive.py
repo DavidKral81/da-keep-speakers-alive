@@ -84,7 +84,7 @@ user32 = ctypes.windll.user32
 # checks that the two never drift apart.
 #
 # The signal defaults come from the measurement written down in CLAUDE.md:
-# 20 Hz at 1 % of full scale is inaudible on the Creative speakers and still
+# 20 Hz at 1 % of full scale came out inaudible in a quiet room and still
 # counts as signal for them.
 DEFAULTS = {
     "active": True,

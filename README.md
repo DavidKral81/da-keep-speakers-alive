@@ -44,11 +44,10 @@ default and pick extra outputs on top of it.
 A sine burst with soft edges — **20 Hz, 1 % of full scale (−40 dBFS), 0.4 s,
 every 3 minutes** by default.
 
-Those numbers are measured, not guessed. On the speakers this was built for
-(Creative, mains-powered, on a USB dock), 20 Hz at 1 % was inaudible in a quiet
-room, and a burst at **half** that level, repeated every 3 minutes for 20
-minutes, kept them awake the whole time. The default is the louder of the two,
-because the headroom costs nothing you can hear.
+The defaults come from measurement rather than guesswork: at 20 Hz and 1 % the
+burst was inaudible in a quiet room, while half that level was already enough
+to keep the speakers from switching off. The shipped default is the louder of
+the two, because headroom you cannot hear costs nothing.
 
 Everything is adjustable in the window: 5–100 Hz, 0.1–10 %, 0.1–2 s, every 30 s
 to 15 minutes. Two details are worth knowing before you turn the knobs:
@@ -60,10 +59,9 @@ to 15 minutes. Two details are worth knowing before you turn the knobs:
   the speaker's coupling capacitor eats. The window warns you when your
   combination of frequency and length falls under that line.
 
-**If you hear crackling**, lower the volume first: a small speaker asked for
-20–60 Hz at 10 % is being asked for more excursion than it has. The signal
-itself has been checked — no clipping, no discontinuity, no buffer underrun —
-so what is left is the analog end.
+**If you can hear the pulse, or it crackles, lower the volume first** — then
+the frequency. Low tones at a high setting ask more of a small speaker than it
+can give.
 
 ---
 

@@ -22,6 +22,7 @@ The images land in _output\\ next to the project.
 
 import ctypes
 import sys
+import tempfile
 import time
 import tkinter as tk
 from ctypes import wintypes
@@ -34,6 +35,13 @@ from PIL import Image
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "windows"))
 
 import keep_alive as K                                  # noqa: E402
+
+# Opening and closing the window saves the settings (the geometry, at least),
+# and the sizes used here are made up for the shot. Worse, with the app
+# running that save would put back the settings as they were when this script
+# started. So the settings file is pointed somewhere harmless and the user's
+# config.json is never written at all.
+K.CFG_PATH = Path(tempfile.gettempdir()) / "da-keep-speakers-alive-test.json"
 
 PW_RENDERFULLCONTENT = 0x00000002
 OUTPUT = Path(__file__).resolve().parent.parent / "_output"
@@ -113,11 +121,6 @@ def main():
             name="Reproduktory (4 - USB Advanced Audio Device)")
         K.ENGINE.partly = True
 
-    # Closing the window remembers its size and position - and the sizes here
-    # are made up for the shot. Without putting it back, the user's window
-    # would open next time exactly where the preview needed it.
-    remembered = K.CFG.get("window_geometry", "")
-
     root = tk.Tk()
     root.withdraw()
     settings = K.Settings(root)
@@ -156,9 +159,6 @@ def main():
 
     root.after(1200, save)
     root.mainloop()
-
-    K.CFG["window_geometry"] = remembered
-    K.save_cfg(K.CFG)
 
 
 if __name__ == "__main__":

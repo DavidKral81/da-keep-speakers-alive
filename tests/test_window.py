@@ -246,8 +246,8 @@ def main():
             The engine thread never runs in this test, so on its own the tray
             only ever sees "ok" - which is how a missing "partial" entry got
             past both test files and froze the icon for good in exactly the
-            case David reported (the default output played, the USB speakers
-            were unplugged).
+            case reported from real use (the default output played, while
+            another picked output was unplugged).
             """
             was = (list(K.ENGINE.error_items), K.ENGINE.partly, dict(K.CFG))
             try:

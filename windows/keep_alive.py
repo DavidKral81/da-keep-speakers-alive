@@ -1658,8 +1658,7 @@ def icon_image(color, size=64, shown_at=None):
     The tray asks for it at 64 px; tools\\make_icons.py asks for it big and
     saves it as keep_alive.ico, which is what the Start menu, the desktop
     shortcut and the window title use. One drawing, because two of them is how
-    the tray and the Start menu came to look like two different programs
-    (David, 20.08.2026).
+    the tray and the Start menu came to look like two different programs.
 
     The geometry is written for 64 px and scaled from there, so asking for 64
     gives exactly the numbers this icon always had.

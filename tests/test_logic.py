@@ -342,7 +342,7 @@ def test_problems():
     was_language, was_log = K.texts.language(), K.CFG.get("log", True)
     try:
         # goes to the redirected file, not the app's - and without this the
-        # check below would break the moment David unticked "write a log
+        # check below would break the moment someone unticked "write a log
         # file" in the window, for a reason that has nothing to do with it
         K.CFG["log"] = True
         K.PROBLEMS.clear()

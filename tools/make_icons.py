@@ -5,8 +5,8 @@ The drawing is NOT here. It is icon_image() in windows/keep_alive.py - the
 same function the tray icon uses - and this tool only asks for it at a large
 size and saves it. There used to be a second drawing here (a blue rounded
 square with a gradient and three waves), so the tray showed one icon and the
-Start menu another; David spotted it on 20.08.2026. One drawing cannot drift
-from itself.
+Start menu another, which is how the problem came to light. One drawing
+cannot drift from itself.
 
 The colour is ORANGE, and deliberately not the green of the tray's "all
 good": the icon file sits in the Start menu next to Da BT Dynamic Lock, and

@@ -139,7 +139,7 @@ def test_pulse_failure_clears_the_bar():
     print("a failed pulse")
     engine = K.ENGINE
     saved_play, saved_targets = K.play, K.targets
-    saved_log, saved_error = K.CFG.get("log", True), engine.error
+    saved_log, saved_error = K.CFG.get("log", True), list(engine.error_items)
     try:
         K.CFG["log"] = True             # goes to the redirected file, not the app's
         K.targets = lambda devices=None: (
@@ -166,7 +166,7 @@ def test_pulse_failure_clears_the_bar():
     finally:
         K.play, K.targets = saved_play, saved_targets
         K.CFG["log"] = saved_log
-        engine.error = saved_error
+        engine.error_items = saved_error
 
 
 # ------------------------------------------------------------ devices
@@ -228,7 +228,7 @@ def test_what_a_missing_device_reports():
     print("what a missing device reports")
     engine = K.ENGINE
     saved_targets, saved_log, saved_play = K.targets, K.log, K.play
-    saved_error, saved_partly = engine.error, engine.partly
+    saved_error, saved_partly = list(engine.error_items), engine.partly
     saved_cfg = dict(K.CFG)
     saved_language = texts.language()
     written = []
@@ -266,6 +266,17 @@ def test_what_a_missing_device_reports():
         check("and the reason is still there to read",
               "není připojené" in error, error)
 
+        # The reason has to FOLLOW the flag, not stay in the language it was
+        # built in. It used to be glued into a sentence the moment the pulse
+        # failed, so after a switch the headline was English and the line
+        # under it Czech - until the next pulse, and for ever while the app
+        # was off or paused.
+        texts.set_language("en")
+        check("and it follows a language switch instead of staying behind",
+              "is not connected" in (engine.error_text() or ""),
+              engine.error_text())
+        texts.set_language("cs")
+
         K.CFG["devices"] = []
         K.targets = lambda devices=None: ([], [])
         error = engine.send(" (test)") or ""
@@ -273,7 +284,7 @@ def test_what_a_missing_device_reports():
               "Není vybrané" in error, error)
     finally:
         K.targets, K.log, K.play = saved_targets, saved_log, saved_play
-        engine.error, engine.partly = saved_error, saved_partly
+        engine.error_items, engine.partly = saved_error, saved_partly
         K.CFG.clear()
         K.CFG.update(saved_cfg)
         texts.set_language(saved_language)
@@ -309,6 +320,81 @@ def test_config_encoding():
         check("a file without a BOM is read too",
               K.read_json(path)["interval_s"] == 42)
     finally:
+        for leftover in folder.glob("*"):
+            leftover.unlink()
+        folder.rmdir()
+
+
+def test_problems():
+    """Trouble that happens where nothing can be printed.
+
+    A packaged build has no console - sys.stdout is None and print() does
+    nothing at all - so anything reported that way was invisible to everyone
+    who did not run the app from the sources. A damaged config.json is the
+    worst one to lose quietly: the chosen speakers live in that file, so the
+    app would go on pulsing at the wrong output while the user thinks nothing
+    has changed.
+    """
+    print("problems that have nowhere to be printed")
+    import tempfile
+    folder = Path(tempfile.mkdtemp())
+    was_path, was_problems = K.CFG_PATH, list(K.PROBLEMS)
+    was_language, was_log = K.texts.language(), K.CFG.get("log", True)
+    try:
+        # goes to the redirected file, not the app's - and without this the
+        # check below would break the moment David unticked "write a log
+        # file" in the window, for a reason that has nothing to do with it
+        K.CFG["log"] = True
+        K.PROBLEMS.clear()
+        K.CFG_PATH = folder / "config.json"
+        K.CFG_PATH.write_text("{ this is not json", encoding="utf-8")
+        cfg = K.load_cfg()
+        check("a damaged settings file is noticed",
+              [key for key, _ in K.PROBLEMS] == ["warn_config"], K.PROBLEMS)
+        check("and the defaults are used in the meantime",
+              cfg["interval_s"] == K.DEFAULTS["interval_s"])
+
+        # Once, not once per read. Said every time, a log that cannot be
+        # written would repeat itself on every single line.
+        K.load_cfg()
+        check("and it is said once, not on every read",
+              len(K.PROBLEMS) == 1, K.PROBLEMS)
+
+        # Kept as a key plus arguments. A finished sentence could not be shown
+        # in the window's language AND written to the log in English - which
+        # is the rule for every line the log carries.
+        # PROBLEMS may be empty here - that is one of the failures above, and
+        # a test that blows up on it would take the rest of the file with it
+        # and report nothing about the checks that come after.
+        key, args = K.PROBLEMS[0] if K.PROBLEMS else ("warn_config", {})
+        K.texts.set_language("cs")
+        czech = K.texts.t(key, **args)
+        K.texts.set_language("en")
+        english = K.texts.t(key, **args)
+        check("the window can say it in Czech", "výchozí" in czech, czech)
+        check("and the log in English, out of the same problem",
+              "defaults" in english and english != czech, english)
+
+        # ... and it really reaches the log file, in English, while the window
+        # is set to Czech. The log is always English - see CLAUDE.md.
+        K.texts.set_language("cs")
+        K.PROBLEMS[:] = [("warn_config", {"error": "a broken file"})]
+        K.log_pending_problems()
+        written = K.LOG_PATH.read_text(encoding="utf-8")
+        check("the log file gets it, in English even with a Czech window",
+              "defaults are in use" in written, written.strip()[-90:])
+
+        # the counter-case: a file that reads fine must leave nothing behind
+        K.PROBLEMS.clear()
+        K.CFG_PATH.write_text(json.dumps({"interval_s": 42}), encoding="utf-8")
+        K.load_cfg()
+        check("a readable file leaves nothing to report",
+              K.PROBLEMS == [], K.PROBLEMS)
+    finally:
+        K.texts.set_language(was_language)
+        K.CFG["log"] = was_log
+        K.CFG_PATH = was_path
+        K.PROBLEMS[:] = was_problems
         for leftover in folder.glob("*"):
             leftover.unlink()
         folder.rmdir()
@@ -374,7 +460,8 @@ def test_texts():
 def main():
     for test in (test_pulse, test_pulse_bar, test_pulse_failure_clears_the_bar,
                  test_devices, test_what_a_missing_device_reports,
-                 test_config_encoding, test_config_template, test_texts):
+                 test_config_encoding, test_problems, test_config_template,
+                 test_texts):
         test()
     print()
     if FAILED:

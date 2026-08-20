@@ -83,8 +83,8 @@ New-VersionFile "$build\version-setup.txt" `
 
 # Only keep_alive.ico is shipped, and on purpose: it is the ONLY icon file
 # the app opens (keep_alive.py, ICON_PATH). The tray icon is drawn at runtime
-# by icon_image(), and the .png / _green files are just output of
-# tools\make_icons.py - packing them would grow the installer for nothing.
+# by icon_image(), and the .png is just output of tools\make_icons.py -
+# packing it would grow the installer for nothing.
 & $python -m PyInstaller `
     --noconfirm --clean --windowed `
     --name "DaKeepSpeakersAlive" --icon $icon `

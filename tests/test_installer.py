@@ -74,6 +74,12 @@ def block_system_changes():
             # nobody can break is worse than no check at all.
             if command.startswith("schtasks /Query"):
                 return pretend_task_exists[0], ""
+            # The app's OWN exit code when it is asked to add or remove the
+            # task. Scripted for the same reason: the task can be registered
+            # and still be disabled, so "it is there" and "it will run" are
+            # two different answers and both have to be forceable.
+            if "--autostart" in command:
+                return pretend_autostart_works[0], ""
             return True, ""
         return real_quiet(command)
 
@@ -83,6 +89,8 @@ def block_system_changes():
 blocked = []
 # what schtasks /Query answers; a list so the steps below can change it
 pretend_task_exists = [False]
+# whether the app managed to switch the logon task on or off
+pretend_autostart_works = [True]
 
 
 def prepare():
@@ -299,6 +307,24 @@ try:
     I.texts.set_language("cs")
     check("and in Czech after switching back", "Hotovo.", I.tx("ins_done"))
 
+    # A REINSTALL, where the app already has settings of its own. load_cfg()
+    # only ever copies the template when there is no config.json yet, and an
+    # uninstall leaves that file behind by default - so writing the template
+    # alone threw the chosen flag away and the app came up in the old
+    # language, with the installer reporting success.
+    live = I.DATA / "config.json"
+    live.parent.mkdir(parents=True, exist_ok=True)
+    live.write_text(json.dumps({"language": "cs", "interval_s": 180}),
+                    encoding="utf-8")
+    I.texts.set_language("en")
+    I.install(task=False, start_menu=False, desktop=False, report=report)
+    settled = json.loads(live.read_text(encoding="utf-8-sig"))
+    check("a reinstall carries the language into the existing settings", "en",
+          settled.get("language"))
+    check("and does not disturb the rest of them", 180,
+          settled.get("interval_s"))
+    I.texts.set_language("cs")
+
     # The failing branch: handing the language over returns False into
     # nothing if nobody checks, so the app would come up in the wrong language
     # while the installer says everything went fine. Forced here, because it
@@ -307,7 +333,7 @@ try:
     kept = template.read_bytes()
     template.unlink()
     check("a language that cannot be handed over is reported", False,
-          I.ship_language("en"))
+          I.ship_language("en")[0])
     template.write_bytes(kept)
 
     # ... and the installation as a whole then reports the problem instead of
@@ -316,7 +342,7 @@ try:
     # included) before it gets there, so the first attempt at this check could
     # never go red. A check that cannot fail proves nothing.
     real_ship = I.ship_language
-    I.ship_language = lambda code: False
+    I.ship_language = lambda code: (False, False)
     said = []
     try:
         result = I.install(task=False, start_menu=False, desktop=False,
@@ -355,6 +381,22 @@ try:
     check("a task that would not be removed is reported too", False, result)
     check("and the message warns it will keep starting", True,
           any(I.tx("ins_prob_task_off") in line for line in said))
+
+    # The gap that used to be here. Installing DISABLES the task on purpose
+    # (so the scheduler cannot restart the old copy mid-copy), and
+    # "schtasks /Query" answers just as happily for a disabled task as for a
+    # live one. So when the app failed to switch it back on, the old check
+    # saw a task, called it done - and the app never started again at logon.
+    pretend_task_exists[0] = True
+    pretend_autostart_works[0] = False
+    said = []
+    result = I.install(task=True, start_menu=False, desktop=False,
+                       report=said.append)
+    check("a task that is there but was never switched on is not success",
+          False, result)
+    check("and that is the part it names", True,
+          any(I.tx("ins_prob_task") in line for line in said))
+    pretend_autostart_works[0] = True
     pretend_task_exists[0] = False
 
     print("\n8c) AN UNINSTALL THAT LEAVES THE TASK BEHIND")

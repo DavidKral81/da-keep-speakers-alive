@@ -117,6 +117,26 @@ def read_json(path):
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
+PROBLEMS = []
+
+
+def problem(key, **args):
+    """Remember something that went wrong on the way, so it can be SEEN.
+
+    print() is no use in the shipped build: PyInstaller's --windowed gives the
+    process no console, so sys.stdout is None and print() does nothing at all.
+    Anything reported that way was invisible to every user who did not run the
+    app from the sources.
+
+    Held as a key plus arguments, never as a finished sentence: the log wants
+    English and the window wants the user's language, and a string that is
+    already glued together cannot be taken apart again. Each problem is kept
+    once - a log that cannot be written would otherwise say so on every line.
+    """
+    if (key, args) not in PROBLEMS:
+        PROBLEMS.append((key, args))
+
+
 def load_cfg():
     """Settings = defaults, overlaid with whatever the user has saved.
 
@@ -137,8 +157,11 @@ def load_cfg():
             cfg.update({k: v for k, v in saved.items()
                         if not k.startswith("_")})
         except (OSError, ValueError) as error:
-            # damaged settings must be visible, not silently ignored
-            print(f"config.json unreadable ({error}) - using defaults")
+            # Damaged settings must be visible, not silently ignored - and
+            # this is the worst one to lose quietly: the chosen speakers live
+            # in that file, so the app would go on pulsing at the wrong output
+            # while the user thinks nothing has changed.
+            problem("warn_config", error=str(error))
     return cfg
 
 
@@ -178,13 +201,35 @@ def log(msg):
             previous = LOG_PATH.with_suffix(".log.1")
             previous.unlink(missing_ok=True)
             LOG_PATH.rename(previous)
-    except OSError:
-        pass
+    except OSError as error:
+        # Not swallowed: the rename fails when something else holds the file,
+        # and the only sign would be a log quietly growing past its limit
+        # forever. Writing carries on below - an oversized log still beats
+        # no log.
+        problem("warn_log_rotate", error=str(error))
     try:
         with LOG_PATH.open("a", encoding="utf-8") as f:
             f.write(line + "\n")
     except OSError as error:
-        print(f"  (could not write the log: {error})")
+        # Cannot go into the log - the log is the thing that just failed. The
+        # window shows it instead.
+        problem("warn_log", error=str(error))
+
+
+def log_pending_problems():
+    """Write out what went wrong before there WAS a log (load_cfg runs first).
+
+    Called from main(), not at import time. The tests import this module and
+    only then redirect LOG_PATH, so writing here on import would put a line
+    into the user's real log the moment their config.json happened to be
+    damaged - the very thing the redirection exists to prevent.
+
+    In English, like every other line in the log, whatever language the window
+    is speaking. list() because a failing write appends to PROBLEMS while we
+    are walking it.
+    """
+    for key, args in list(PROBLEMS):
+        log(texts.en(key, **args))
 
 
 # ---------------------------------------------------------------- audio
@@ -353,7 +398,12 @@ class Engine(threading.Thread):
         self.last_at = 0.0              # monotonic, 0 = nothing sent yet
         self.last_wall = None           # datetime of the last pulse
         self.count = 0
-        self.error = None               # text of the last failure, or None
+        # What went wrong last time, as (key, arguments) - NEVER as finished
+        # sentences. A glued string keeps the language it was built in, so
+        # after a switch the status line went on speaking the old one until
+        # the next pulse, and for ever while the app was off or paused.
+        # Rendered by error_text() at the moment it is shown.
+        self.error_items = []
         # Whether that failure was only partial - some devices got the pulse
         # and some did not. "The last pulse could not be played" is a lie in
         # that case, and the user has no way to tell it from a total failure.
@@ -394,12 +444,23 @@ class Engine(threading.Thread):
             return None
         return min(span, max(0.0, time.monotonic() - started)), span
 
+    def error_text(self):
+        """The reason the last pulse went wrong, in the window's language.
+
+        Rendered on every read, never kept: this is the one place the keys in
+        error_items become a sentence, so the text cannot be left behind in
+        the language it happened to be built in.
+        """
+        if not self.error_items:
+            return None
+        return "\n".join(tx(key, **kw) for key, kw in self.error_items)
+
     def state(self):
         if not CFG.get("active", True):
             return "off"
         if self.paused():
             return "paused"
-        if self.error:
+        if self.error_items:
             return "partial" if self.partly else "error"
         return "ok"
 
@@ -449,8 +510,7 @@ class Engine(threading.Thread):
             self.last_at = time.monotonic()
             self.last_wall = datetime.now()
             self.count += 1
-            self.error = ("\n".join(tx(key, **kw) for key, kw in problems)
-                          if problems else None)
+            self.error_items = problems
             self.partly = bool(played) and bool(problems)
             if problems:
                 in_english = "; ".join(tx_en(key, **kw) for key, kw in problems)
@@ -464,7 +524,7 @@ class Engine(threading.Thread):
             # the bar asks about ENGINE.error the moment it stops moving, and
             # would otherwise show the previous pulse's verdict for a frame.
             self.playing_from = 0.0
-        return self.error
+        return self.error_text()
 
     def run(self):
         while not self.stop.is_set():
@@ -764,12 +824,18 @@ class Scroller(tk.Canvas):
         self.first, self.last = 0.0, 1.0
         self.grab = None                # cursor offset from the top edge
         self.hovered = False
-        self.bind("<Configure>", lambda e: self._draw())
+        # e=None for the same reason the option rows do it: while the window
+        # is being torn down an event can still reach a widget on its way out,
+        # and Tk then calls the handler with nothing to hand it. Without the
+        # default that is a TypeError printed to a console the packaged build
+        # does not have.
+        self.bind("<Configure>", lambda e=None: self._draw())
         self.bind("<Button-1>", self._press)
         self.bind("<B1-Motion>", self._drag)
-        self.bind("<ButtonRelease-1>", lambda e: setattr(self, "grab", None))
-        self.bind("<Enter>", lambda e: self._hover(True))
-        self.bind("<Leave>", lambda e: self._hover(False))
+        self.bind("<ButtonRelease-1>",
+                  lambda e=None: setattr(self, "grab", None))
+        self.bind("<Enter>", lambda e=None: self._hover(True))
+        self.bind("<Leave>", lambda e=None: self._hover(False))
 
     def set_view(self, first, last):
         self.first, self.last = float(first), float(last)
@@ -901,8 +967,12 @@ class Settings:
     # (5 Hz in a 0.1 s pulse is a fifth of a wave) - otherwise the warning
     # below the controls could never appear and would be guarding nothing.
     FREQS = [5, 10, 15, 20, 25, 30, 40, 50, 60, 80, 100]
-    AMPS = [0.1, 0.2, 0.5, 1.0, 2.0, 3.0, 5.0, 10.0]
     DURATIONS = [0.1, 0.2, 0.3, 0.4, 0.6, 1.0, 2.0]
+    # The volume is TYPED, not picked from a list, so it needs limits instead
+    # of options. 100 % is full scale - the point where the wave would start
+    # clipping - and the bottom end is where a tone stops being a signal at
+    # all. Anything outside is refused and said so, never quietly rounded.
+    AMP_MIN, AMP_MAX = 0.01, 100.0
     PAUSES = [15, 30, 60, 120, 240, 480]
 
     def __init__(self, root, tray=None):
@@ -1204,6 +1274,79 @@ class Settings:
         row.key = key
         return row
 
+    def _number_entry(self, parent, label, unit, key, default, low, high,
+                      hint):
+        """A number the user TYPES in, where a list of options gets in the way.
+
+        Built to look like _select on purpose - same background, same font,
+        same padding, same full width, and the unit sits at the right edge
+        where a drop-down keeps its arrow. A control that is almost like the
+        others is worse than one that is plainly different.
+
+        The value takes effect as soon as what is typed makes sense, the same
+        way picking from a list does. While it does not make sense, the last
+        good value stays in force and the reason is shown underneath - and
+        leaving the box puts that good value back into it, so the window can
+        never sit there showing a number that is not the one being used.
+
+        No silent rounding or clamping: a number outside the range is refused
+        and said so, not quietly turned into the nearest allowed one.
+        """
+        if label:
+            tk.Label(parent, text=label, bg=parent["bg"], fg=self.LABEL,
+                     font=("Segoe UI", 9)).pack(anchor="w", pady=(6, 0))
+        row = tk.Frame(parent, bg="#232b36")
+        row.pack(anchor="w", fill="x", pady=(1, 4))
+        var = tk.StringVar(value=number(CFG.get(key, default)))
+        entry = tk.Entry(row, textvariable=var, bg="#232b36", fg=self.FG,
+                         insertbackground=self.FG, relief="flat",
+                         borderwidth=0, highlightthickness=0,
+                         font=("Segoe UI", 10))
+        entry.pack(side="left", fill="x", expand=True, padx=(10, 0), pady=6)
+        # the unit needs no translating - "%" and "Hz" read the same in both
+        tk.Label(row, text=unit, bg="#232b36", fg="#c3ccd8",
+                 font=("Segoe UI", 10)).pack(side="right", padx=(0, 12))
+        message = tk.Label(parent, text="", bg=parent["bg"], fg="#ffcf8a",
+                           font=("Segoe UI", 9), justify="left",
+                           wraplength=self.CARD_WIDTH - 40)
+
+        def parse(text):
+            # A comma is what a Czech keyboard gives and what number() writes
+            # back into the box, so both separators have to be understood.
+            try:
+                value = float(text.strip().replace(",", "."))
+            except ValueError:
+                return None
+            return value if low <= value <= high else None
+
+        def typed(*_):
+            value = parse(var.get())
+            # Whether the message is up is read from its own text, never from
+            # winfo_ismapped() - that answers a redraw late, so it is always
+            # one step behind what is on screen.
+            shown = bool(message.cget("text"))
+            if value is None:
+                if not shown:
+                    message.pack(anchor="w", pady=(0, 4))
+                message.configure(text=hint)
+                return
+            if shown:
+                message.configure(text="")
+                message.pack_forget()
+            # only when it really changed - otherwise every keystroke would
+            # write the settings file and add a line to the log
+            if value != CFG.get(key, default):
+                self._set(key, value)
+
+        def restore(_=None):
+            if parse(var.get()) is None:
+                var.set(number(CFG.get(key, default)))
+
+        var.trace_add("write", typed)
+        entry.bind("<FocusOut>", restore)
+        entry.bind("<Return>", restore)
+        return entry
+
     def _select(self, parent, label, pairs, current, action):
         """A drop-down list. Every setting in the window is one of these, so
         the controls all look and behave the same."""
@@ -1291,10 +1434,16 @@ class Settings:
                      [(tx("opt_hz", v=number(v)), v) for v in self.FREQS],
                      CFG.get("freq_hz", 20),
                      lambda v: self._set("freq_hz", v, warn=True))
-        self._select(card, tx("lbl_amp"),
-                     [(tx("opt_percent", v=number(v)), v) for v in self.AMPS],
-                     CFG.get("amp_percent", 1.0),
-                     lambda v: self._set("amp_percent", v))
+        # Typed in, not picked from a list (David 20.08.2026): the useful
+        # values are spread over three orders of magnitude and any list short
+        # enough to read leaves out the one somebody needs.
+        # rebuilt with the card on a language switch, so the reference cannot
+        # be left pointing at a widget that is already gone
+        self.amp_entry = self._number_entry(
+            card, tx("lbl_amp"), "%", "amp_percent", 1.0,
+            self.AMP_MIN, self.AMP_MAX,
+            tx("warn_amp_range", low=number(self.AMP_MIN),
+               high=number(self.AMP_MAX)))
         self._select(card, tx("lbl_duration"),
                      [(tx("opt_sec", v=number(v)), v) for v in self.DURATIONS],
                      CFG.get("duration_s", 0.4),
@@ -1313,6 +1462,15 @@ class Settings:
         self.sw_autostart = self._switch(card, tx("sw_autostart"), None,
                                          autostart_enabled, autostart_set)
         self._switch(card, tx("sw_log"), "log")
+        # Where the problems from problem() surface. Amber like the pulse
+        # warning above, because it is the same kind of message: nothing is
+        # broken beyond repair, but the user has to know. Filled in by
+        # _refresh_status; hidden while there is nothing to say, so a healthy
+        # run leaves no gap in the card.
+        self.problem_label = tk.Label(card, text="", bg=self.CARD,
+                                      fg="#ffcf8a", font=("Segoe UI", 9),
+                                      justify="left",
+                                      wraplength=self.CARD_WIDTH - 40)
         # No language drop-down here: the flags in the top right corner are
         # the one place it is switched. Two controls for one setting is two
         # truths waiting to disagree.
@@ -1468,7 +1626,7 @@ class Settings:
         # Coloured by what the failure actually was, not by the current state:
         # switched off or paused, the app is grey, but the reason the last
         # pulse went wrong is still amber or red.
-        problem = ENGINE.error or ""
+        problem = ENGINE.error_text() or ""
         if problem != self.status_problem.cget("text"):
             self.status_problem.configure(text=problem)
             if problem:
@@ -1479,6 +1637,17 @@ class Settings:
         if problem:
             self.status_problem.configure(
                 fg=STATE_COLOUR["partial" if ENGINE.partly else "error"])
+
+        # Problems with no other way of being seen (see problem()). Rendered
+        # here, from the key and its arguments, so the window speaks the
+        # user's language while the log stayed English.
+        warnings = "\n".join(tx(key, **args) for key, args in PROBLEMS)
+        if warnings != self.problem_label.cget("text"):
+            self.problem_label.configure(text=warnings)
+            if warnings:
+                self.problem_label.pack(anchor="w", pady=(6, 0))
+            else:
+                self.problem_label.pack_forget()
 
         lines = []
         if ENGINE.last_wall is None:
@@ -1529,7 +1698,7 @@ class Settings:
             self.bar_full_until = now + 0.9
         elif now < self.bar_full_until:
             done = span = ENGINE.playing_span    # played, held full a moment
-            error, partly = ENGINE.error, ENGINE.partly
+            error, partly = ENGINE.error_text(), ENGINE.partly
         elif now < self.bar_wait_until:
             done = span = 0.0                    # asked for, not started yet
         else:
@@ -1612,8 +1781,12 @@ def icon_image(color, size=64, shown_at=None):
     return img
 
 
+# One entry per state ENGINE.state() can return - all FIVE of them. The
+# tray was left with four when "partial" was added, and the missing key threw
+# a KeyError out of refresh() that killed the whole watch() loop.
 COLORS = {"ok": (34, 160, 80), "paused": (214, 158, 46),
-          "off": (120, 120, 120), "error": (198, 60, 60)}
+          "off": (120, 120, 120), "partial": (222, 116, 24),
+          "error": (198, 60, 60)}
 
 
 class TrayIcon:
@@ -1622,8 +1795,21 @@ class TrayIcon:
         self.settings = settings
         self.state = None
         self._signature = None
+        self._last_trouble = None   # so one fault is not logged every 2 s
         self.icon = pystray.Icon("keep_alive", icon_image(COLORS["ok"]),
                                  APP_NAME, menu=self._menu())
+
+    def trouble(self, message):
+        """Report a tray failure - but only when it is a NEW one.
+
+        refresh() is retried every two seconds, so a fault that does not clear
+        would write some 43 000 identical lines a day and push the real
+        history out through the 2 MB rotation. Said once, and again once it
+        has changed or come back after a good refresh.
+        """
+        if message != self._last_trouble:
+            self._last_trouble = message
+            log(message)
 
     def _menu(self):
         # The item texts are functions, not finished strings: pystray calls
@@ -1694,18 +1880,26 @@ class TrayIcon:
         if signature == self._signature:
             return
         icon_changed = state != self.state
-        self._signature, self.state = signature, state
-        label = {"ok": tx("st_running"), "off": tx("st_off"),
-                 "error": tx("st_error"),
-                 "paused": tx("st_paused", time=datetime.fromtimestamp(
-                     time.time() + ENGINE.paused()).strftime("%H:%M"))}[state]
         try:
+            # The same five states as COLORS, and for the same reason.
+            label = {"ok": tx("st_running"), "off": tx("st_off"),
+                     "partial": tx("st_partial"), "error": tx("st_error"),
+                     "paused": tx("st_paused", time=datetime.fromtimestamp(
+                         time.time() + ENGINE.paused()).strftime("%H:%M"))}[
+                             state]
             if icon_changed:
                 self.icon.icon = icon_image(COLORS[state])
             self.icon.title = f"{APP_NAME} — {label}"
             self.icon.update_menu()
         except Exception as error:
-            log(f"Could not refresh the tray icon: {error}")
+            self.trouble(f"Could not refresh the tray icon: {error}")
+        else:
+            # Remembered only once it ALL really went through. Stored before
+            # the try - as it was - a failure inside would be recorded as
+            # "already shown", the next tick would return early at the
+            # signature check, and the icon would stay wrong for good.
+            self._signature, self.state = signature, state
+            self._last_trouble = None
 
     def start(self):
         threading.Thread(target=self.icon.run, daemon=True).start()
@@ -1714,12 +1908,30 @@ class TrayIcon:
 # ---------------------------------------------------------------- main
 
 def watch(root, tray):
-    """Keeps the tray icon in step with what the engine is doing."""
-    tray.refresh()
+    """Keeps the tray icon in step with what the engine is doing.
+
+    The refresh is guarded so that ONE bad tick cannot end the loop: the
+    rescheduling below is what keeps the tray alive, and an exception on the
+    way there used to leave the icon frozen until the app was restarted -
+    with no message anywhere, because a windowed build has no console.
+    """
+    try:
+        tray.refresh()
+    except Exception as error:
+        # refresh() reports its own trouble; this catches only what it could
+        # not. Same wording, same de-duplication, one place to change it.
+        tray.trouble(f"Could not refresh the tray icon: {error}")
     root.after(2000, watch, root, tray)
 
 
 def main():
+    # First of all, before ANY branch returns: --pulse and --autostart both
+    # end without a window and without reaching the start line below, so
+    # anything load_cfg() had to complain about would have gone unsaid - and
+    # a --pulse running on the defaults sends the tone to the wrong output
+    # while both manuals promise the app says so.
+    log_pending_problems()
+
     # This is how the installer will ask for the task to be created - so that
     # ONE piece of code registers it and the two cannot drift apart.
     if "--autostart-on" in sys.argv or "--autostart-off" in sys.argv:

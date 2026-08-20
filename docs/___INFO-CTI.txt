@@ -201,7 +201,8 @@ potřebného — rezerva nic nestojí, protože ji stejně neslyšíš.
 CO SE DÁ NASTAVIT
 
   Frekvence     5 až 100 Hz     čím níž, tím hůř slyšitelné
-  Hlasitost     0,1 až 10 %     % plného rozsahu (1 % = -40 dBFS)
+  Hlasitost     0,01 až 100 %   píše se ručně; % plného rozsahu
+                                (1 % = -40 dBFS)
   Délka         0,1 až 2 s
 
 DVĚ VĚCI, KTERÉ STOJÍ ZA TO VĚDĚT
@@ -326,8 +327,10 @@ tohle a po změně je nutný restart aplikace:
 Ostatní klíče odpovídají položkám v okně.
 
 Soubor se čte i s BOM (Poznámkový blok ho přidává), zapisuje se
-bez něj. Když je poškozený, aplikace to napíše a použije výchozí
-hodnoty.
+bez něj. Když je poškozený, aplikace použije výchozí hodnoty a
+napíše to na dvě místa: do logu a do okna, do karty „Chování
+aplikace". Pozor, mezi výchozími hodnotami není tvůj výběr
+reproduktorů — když se ta hláška objeví, zkontroluj config.json.
 
 
 

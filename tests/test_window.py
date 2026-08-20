@@ -58,6 +58,12 @@ def main():
         # a bar that is told nothing and therefore never moves - exactly the
         # regression the check below exists for
         K.PulseBar.show = lambda self, done, span, error=None, partly=False: None
+        # the tray as it was before 20.08.2026: four states out of five, so
+        # "partial" threw a KeyError and the icon froze for good
+        K.COLORS.pop("partial", None)
+        # a typed volume with no upper limit, so 150 % of full scale would be
+        # taken as a setting - the check below has to notice
+        K.Settings.AMP_MAX = 1e9
     saved_config = json.dumps(dict(K.CFG))
     root = tk.Tk()
     root.withdraw()
@@ -188,8 +194,94 @@ def main():
             settings.anim = None
         step("a pulse from the tray shows on the bar too", tray_pulse)
 
+        def typed_volume():
+            """The volume is TYPED, so nonsense can be typed into it.
+
+            A drop-down could only ever offer valid values; a box cannot. What
+            matters is that a bad number does not become a setting, that the
+            user is told, and that leaving the box does not strand it showing
+            a number the app is not using.
+            """
+            box = settings.amp_entry
+            good = K.CFG["amp_percent"]
+
+            box.delete(0, "end")
+            box.insert(0, "2,5")               # a Czech comma, as typed here
+            assert K.CFG["amp_percent"] == 2.5, K.CFG["amp_percent"]
+            box.delete(0, "end")
+            box.insert(0, "0.75")              # and a full stop
+            assert K.CFG["amp_percent"] == 0.75, K.CFG["amp_percent"]
+
+            # over full scale: refused, and the old value left in force
+            box.delete(0, "end")
+            box.insert(0, "150")
+            assert K.CFG["amp_percent"] == 0.75, \
+                f"150 % was accepted: {K.CFG['amp_percent']}"
+            box.delete(0, "end")
+            box.insert(0, "abc")
+            assert K.CFG["amp_percent"] == 0.75, \
+                f"letters were accepted: {K.CFG['amp_percent']}"
+
+            # and leaving the box puts the value actually in use back
+            box.event_generate("<FocusOut>")
+            settings.win.update()
+            assert box.get() in ("0,75", "0.75"), box.get()
+
+            K.CFG["amp_percent"] = good
+        step("a volume typed by hand is taken, and nonsense is not",
+             typed_volume)
+
         step("the tray menu builds", lambda: tray._menu())
         step("the tray survives having no running icon", tray.refresh)
+
+        def tray_every_state():
+            """Every state ENGINE.state() can return, through the tray.
+
+            The engine thread never runs in this test, so on its own the tray
+            only ever sees "ok" - which is how a missing "partial" entry got
+            past both test files and froze the icon for good in exactly the
+            case David reported (the default output played, the USB speakers
+            were unplugged).
+            """
+            was = (list(K.ENGINE.error_items), K.ENGINE.partly, dict(K.CFG))
+            try:
+                # Mechanical, so a SIXTH state added one day cannot be put in
+                # one table and forgotten in the other. A hand-written list
+                # only ever covers what somebody remembered to write down.
+                assert set(K.COLORS) == set(K.STATE_COLOUR), (
+                    "the two colour tables disagree: "
+                    f"{set(K.COLORS) ^ set(K.STATE_COLOUR)}")
+                for want, error, partly, active in [
+                        ("ok", [], False, True),
+                        ("partial", [("err_play", {"name": "S", "error": "x"})],
+                         True, True),
+                        ("error", [("err_play", {"name": "S", "error": "x"})],
+                         False, True),
+                        ("off", [], False, False)]:
+                    K.ENGINE.error_items, K.ENGINE.partly = error, partly
+                    K.CFG["active"] = active
+                    assert K.ENGINE.state() == want, K.ENGINE.state()
+                    tray._signature = None          # force a real repaint
+                    tray.refresh()
+                    # refresh() only records the state once the repaint really
+                    # went through, so this covers the tooltip AND the icon:
+                    # a key missing from either table leaves it unchanged.
+                    assert tray.state == want, f"{want} never reached the tray"
+
+                # "paused" is not an error state, so it needs its own lever -
+                # and it was the state the loop above could never produce.
+                K.ENGINE.error_items, K.ENGINE.partly = [], False
+                K.CFG["active"] = True
+                K.ENGINE.pause(15)
+                assert K.ENGINE.state() == "paused", K.ENGINE.state()
+                tray._signature = None
+                tray.refresh()
+                assert tray.state == "paused", "paused never reached the tray"
+            finally:
+                K.ENGINE.pause(0)
+                K.ENGINE.error_items, K.ENGINE.partly = was[0], was[1]
+                K.CFG["active"] = was[2].get("active", True)
+        step("the tray copes with every state, not just 'ok'", tray_every_state)
         step("the device list can be reloaded", settings._rescan)
 
         def closes():

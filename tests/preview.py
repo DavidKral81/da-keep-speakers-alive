@@ -176,10 +176,16 @@ def main():
         # Exactly the situation the user reported: the system default output
         # got the pulse, the saved USB speakers were unplugged. The headline
         # must NOT claim the pulse failed, and the reason must be readable.
-        K.ENGINE.error = K.tx(
-            "err_device_gone",
-            name="Reproduktory (4 - USB Advanced Audio Device)")
+        K.ENGINE.error_items = [
+            ("err_device_gone",
+             {"name": "Reproduktory (4 - USB Advanced Audio Device)"})]
         K.ENGINE.partly = True
+        # ... and the other kind of trouble, the one with nowhere else to go:
+        # a packaged build has no console, so this line in the application
+        # card is the only place the user ever sees it. It needs looking at
+        # in both languages, like everything else here.
+        K.problem("warn_config",
+                  error="Expecting ',' delimiter: line 4 column 3 (char 61)")
 
     root = tk.Tk()
     root.withdraw()

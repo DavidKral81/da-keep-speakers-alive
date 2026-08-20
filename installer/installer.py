@@ -132,30 +132,57 @@ def stored_language():
         return None
 
 
-def ship_language(code):
-    """Hand the chosen language over to the application itself.
-
-    The app builds its config.json out of config.default.json on first run
-    (see load_cfg in keep_alive.py), so writing it there is what makes the app
-    come up in the language picked here - no second mechanism needed.
-
-    Returns False when it did not work, so the caller can report it instead
-    of pretending everything went fine.
-    """
-    template = TARGET_DIR / "config.default.json"
-    if not template.exists():
-        return False
+def _set_language_in(path, code):
+    """Put the language into one settings file. False = it did not work."""
     try:
         # utf-8-sig on the way in for the same reason load_cfg() uses it: a
         # byte order mark would otherwise make json.loads refuse the file.
         # Written back WITHOUT one.
-        settings = json.loads(template.read_text(encoding="utf-8-sig"))
+        settings = json.loads(path.read_text(encoding="utf-8-sig"))
         settings["language"] = code
-        template.write_text(json.dumps(settings, indent=2, ensure_ascii=False),
-                            encoding="utf-8")
+        path.write_text(json.dumps(settings, indent=2, ensure_ascii=False),
+                        encoding="utf-8")
         return True
     except (OSError, ValueError):
         return False
+
+
+def ship_language(code):
+    """Hand the chosen language over to the application itself.
+
+    TWO files, because the app reads two:
+
+    - config.default.json in the program folder is what a FIRST run copies
+      into %APPDATA% (see load_cfg in keep_alive.py). It settles the language
+      of a fresh installation.
+    - config.json in %APPDATA% is what every later run reads. load_cfg() only
+      falls back to the template when that file does not exist yet, and an
+      uninstall leaves it behind unless the user ticks the box - so on a
+      REINSTALL the template is never looked at again. Writing only the
+      template, the flag picked here was quietly thrown away and the app came
+      up in the old language, with the installer reporting success.
+
+    Returns (worked, reached_the_user). The second one is not the same
+    question: the settings of the person at the keyboard can be out of reach
+    while everything here goes fine, and the caller has to be able to say so
+    rather than report a clean install of a language that never arrived.
+    """
+    template = TARGET_DIR / "config.default.json"
+    if not template.exists() or not _set_language_in(template, code):
+        return False, False
+    live = DATA / "config.json" if DATA else None
+    if live and live.exists():
+        # ... unless %APPDATA% is not the profile of the person at the
+        # keyboard (an install elevated with a different administrator
+        # account). Then this file is the ADMINISTRATOR's, and rewriting it
+        # would change the wrong person's settings while leaving the user's
+        # untouched. Their own file cannot be reached from here at all - so
+        # it is reported, exactly as the uninstaller reports the same state
+        # instead of quietly claiming to have deleted their settings.
+        if data_belongs_to_someone_else():
+            return True, False
+        return _set_language_in(live, code), True
+    return True, True
 
 
 def icon_source():
@@ -246,9 +273,13 @@ def set_task_enabled(enabled):
     alone, the scheduler starts the OLD copy again a minute later, out of the
     very folder being overwritten. Measured on this machine on 19.08.2026: a
     killed instance came back on its own.
+
+    Returns whether the scheduler accepted it, so a caller that can do
+    something about a failure is able to.
     """
     switch = "ENABLE" if enabled else "DISABLE"
-    quiet(f'schtasks /Change /TN "{TASK_NAME}" /{switch}')
+    ok, _ = quiet(f'schtasks /Change /TN "{TASK_NAME}" /{switch}')
+    return ok
 
 
 def data_belongs_to_someone_else():
@@ -394,17 +425,30 @@ def install(task, start_menu, desktop, report):
     - a task that exists but never runs is the kind of fault nobody finds.
     """
     had_task = task_exists()
-    if had_task:
-        set_task_enabled(False)
+    # The answer is USED, not dropped. When the scheduler refuses to let go,
+    # its "restart on failure" rule brings the old copy back a minute after
+    # taskkill - in the middle of the copying - and that is exactly the fault
+    # this whole wrapper exists to prevent. _install puts it on the list of
+    # problems, so the run cannot end with a plain "Done."
+    held = set_task_enabled(False) if had_task else True
     try:
-        return _install(task, start_menu, desktop, report)
-    except BaseException:
+        return _install(task, start_menu, desktop, report, held)
+    finally:
+        # finally, not except: _install can also come back with False, and a
+        # run that gave up halfway would otherwise leave the task disabled -
+        # it still shows up in the scheduler, so nobody goes looking.
+        #
+        # This only ever switches the task back ON. On the normal path
+        # _install has already re-registered or removed it, so it is a no-op.
+        #
+        # The result is deliberately not reported: we are on the way out of a
+        # run that is already being reported as failed, and writing here would
+        # overwrite the message saying WHY it failed with a lesser one.
         if had_task and task_exists():
             set_task_enabled(True)
-        raise
 
 
-def _install(task, start_menu, desktop, report):
+def _install(task, start_menu, desktop, report, held=True):
     report(tx("ins_stopping"))
     # The result is NOT ignored: when the old copy keeps running, the new one
     # quits at startup with "already running" and the user is left with the
@@ -431,6 +475,8 @@ def _install(task, start_menu, desktop, report):
     problems = []
     if not stopped:
         problems.append(tx("ins_prob_running"))
+    if not held:
+        problems.append(tx("ins_prob_task_hold"))
     if not exe.exists():
         raise RuntimeError(tx("ins_err_copy"))
 
@@ -439,8 +485,14 @@ def _install(task, start_menu, desktop, report):
     # so it goes on the list instead of stopping anything - but it must not
     # pass in silence, or the app comes up in the wrong language and the
     # installer claims everything went fine.
-    if not ship_language(texts.language()):
+    shipped, reached_user = ship_language(texts.language())
+    if not shipped:
         problems.append(tx("ins_prob_language"))
+    elif not reached_user:
+        # It worked here, but the settings it has to reach are in another
+        # profile. Saying nothing would leave the user with an installer that
+        # reported success and an app that starts in the old language.
+        problems.append(tx("ins_prob_language_elsewhere"))
 
     if start_menu:
         report(tx("ins_startmenu"))
@@ -486,10 +538,18 @@ def _install(task, start_menu, desktop, report):
     # switch). Why: its window and tray menu can do the same, and if these
     # were two pieces of code they would drift apart sooner or later.
     report(tx("ins_task_on") if task else tx("ins_task_off"))
-    quiet(f'"{exe}" ' + ("--autostart-on" if task else "--autostart-off"))
-    # The return code is not what decides - the scheduler is asked below,
-    # in the final check. Reporting a failure here would be pointless anyway:
-    # the next report() overwrites the line before anyone can read it.
+    switched, _ = quiet(f'"{exe}" '
+                        + ("--autostart-on" if task else "--autostart-off"))
+    # The return code IS kept, and it is not reported here - the next report()
+    # would overwrite the line before anyone could read it. It goes into the
+    # final check below instead, where the problems are collected.
+    #
+    # It has to be kept, because asking the scheduler is not enough on its
+    # own: schtasks /Query answers happily for a task that is registered but
+    # DISABLED, and installing disables the task on purpose (see install()).
+    # So "the task is there" cannot tell a working autostart from one that
+    # will never fire. The exit code can: keep_alive.py --autostart-on checks
+    # the result itself and only returns 0 when the scheduler really took it.
 
     # The final check - the REAL result is verified, not that the commands
     # finished. The installer must not report success when something is
@@ -508,7 +568,7 @@ def _install(task, start_menu, desktop, report):
     # BOTH directions are checked. Only "on" used to be: a failed switch-off
     # left the app starting at every logon while the installer said it had
     # been turned off - and the user has no way of noticing until it starts.
-    if task_exists() != bool(task):
+    if task_exists() != bool(task) or not switched:
         problems.append(tx("ins_prob_task" if task else "ins_prob_task_off"))
 
     if problems:
@@ -593,13 +653,37 @@ def uninstall(delete_data, report):
         if not stopped:
             left.append(tx("ins_prob_running"))
     if left:
-        report(tx("uni_partial", what=", ".join(left[:4])))
+        # The whole list, not the first few. This is the one place that says
+        # what stayed behind on disk, and a user told "config.json, ..." has
+        # no way of learning what the "..." was. Both labels that show this
+        # have a wraplength, so a long list wraps instead of being cut.
+        report(tx("uni_partial", what=", ".join(left)))
         return False
     report(tx("ins_done"))
     return True
 
 
 # ---------------------------------------------------------------- window
+
+def _version_label(parent):
+    """The version, next to the heading of both windows.
+
+    The user has to be able to see WHICH version is being installed, and to
+    still see it once the installing is over - so it appears in the first
+    window and in the result window as well. When uninstalling it is the
+    version that is installed: the uninstaller is a copy of the build that
+    installed it.
+
+    VERSION comes from windows/version.py, the same constant the file
+    properties and the app window use, so the three cannot disagree. No
+    translation key - "v1.0" reads the same in both languages.
+    """
+    # padding at the top lines the small text up with the baseline of the
+    # 17pt heading beside it
+    tk.Label(parent, text=f"v{VERSION}", bg=BACKGROUND, fg=GREY,
+             font=("Segoe UI", 11)).pack(side="left", padx=(8, 0),
+                                         pady=(9, 0))
+
 
 def switch_row(parent, text, variable):
     """A checkbox row - the mark is DRAWN, not left to Tk.
@@ -689,6 +773,7 @@ class Window:
         header.pack(fill="x")
         tk.Label(header, text=APP_NAME, bg=BACKGROUND, fg=TEXT,
                  font=("Segoe UI", 17, "bold")).pack(side="left")
+        _version_label(header)
         # the same flags as the app, out of marks.py - see LanguageFlags
         marks.LanguageFlags(header, self._change_language, TEXT).pack(
             side="right")
@@ -839,9 +924,14 @@ class ResultWindow:
         # done and the language was settled in the first window.
         heading = tx("ins_head_uninstalled" if uninstalling
                      else "ins_head_installed")
-        tk.Label(frame, text=heading, bg=BACKGROUND,
+        head_row = tk.Frame(frame, bg=BACKGROUND)
+        head_row.pack(anchor="w", fill="x")
+        tk.Label(head_row, text=heading, bg=BACKGROUND,
                  fg=GREEN_LIGHT if all_ok else AMBER,
-                 font=("Segoe UI", 17, "bold")).pack(anchor="w")
+                 font=("Segoe UI", 17, "bold")).pack(side="left")
+        # The version again, so the answer to "what have I just got?" does not
+        # disappear with the first window.
+        _version_label(head_row)
 
         if uninstalling:
             description = tx("uni_ok_desc" if all_ok else "uni_partial_desc",

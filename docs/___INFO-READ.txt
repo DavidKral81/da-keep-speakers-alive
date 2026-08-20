@@ -215,7 +215,8 @@ cannot hear it anyway.
 WHAT YOU CAN CHANGE
 
   Frequency     5 to 100 Hz     the lower, the harder to hear
-  Volume        0.1 to 10 %     % of full scale (1 % = -40 dBFS)
+  Volume        0.01 to 100 %   typed in by hand; % of full scale
+                                (1 % = -40 dBFS)
   Length        0.1 to 2 s
 
 TWO THINGS WORTH KNOWING
@@ -343,8 +344,11 @@ the file, and the app has to be restarted afterwards:
 The other keys match the items in the window.
 
 The file is read even with a BOM (Notepad adds one), and written
-without one. If it is damaged, the app says so and uses the
-defaults.
+without one. If it is damaged, the app uses the defaults and says
+so in two places: in the log, and in the window, on the
+"Application behaviour" card. Mind that your choice of speakers is
+not among the defaults - if that message shows up, have a look at
+config.json.
 
 
 

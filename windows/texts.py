@@ -115,7 +115,8 @@ CS = {
     "lbl_freq": "Frekvence",
     "opt_hz": "{v} Hz",
     "lbl_amp": "Hlasitost (% plného rozsahu)",
-    "opt_percent": "{v} %",
+    "warn_amp_range": "Zadej číslo od {low} do {high}. Dokud tu není platné "
+                      "číslo, platí ta poslední správná hodnota.",
     "lbl_duration": "Délka impulzu",
     "opt_sec": "{v} s",
     "warn_short_pulse": "Pozor: {d} s při {f} Hz je jen {p} periody. Kratší "
@@ -128,6 +129,15 @@ CS = {
     "sw_active": "Udržovat reproduktory vzhůru",
     "sw_autostart": "Spouštět po přihlášení do Windows",
     "sw_log": "Zapisovat log do souboru",
+    # Problems that have nowhere else to be seen - a zabalená aplikace nemá
+    # konzoli. Viz problem() v keep_alive.py.
+    "warn_config": "Nastavení se nepodařilo přečíst, takže platí výchozí "
+                   "hodnoty — včetně výběru reproduktorů. Zkontroluj "
+                   "config.json. ({error})",
+    "warn_log": "Do souboru s logem se nepodařilo zapsat, takže se záznam "
+                "nevede. ({error})",
+    "warn_log_rotate": "Log přerostl svoji velikost a nepodařilo se založit "
+                       "nový soubor, takže roste dál. ({error})",
 
     # --- pause card ----------------------------------------------------
     "card_pause": "Dočasně pozastavit",
@@ -204,6 +214,13 @@ CS = {
                         "u hodin a spusť instalaci znovu)",
     "ins_prob_registry": "zápis do seznamu aplikací",
     "ins_prob_task": "úloha v Plánovači",
+    "ins_prob_task_hold": "vypnutí úlohy v Plánovači na dobu instalace "
+                          "(Plánovač mohl aplikaci mezitím znovu spustit — "
+                          "restartuj počítač)",
+    "ins_prob_language_elsewhere": "předání jazyka aplikaci (nastavení má "
+                                   "jiný uživatel než ten, pod kterým běží "
+                                   "instalace — jazyk si přepni v okně "
+                                   "aplikace)",
     "ins_prob_task_off": "zrušení spouštění po přihlášení (aplikace se bude "
                          "dál spouštět sama)",
 
@@ -293,7 +310,8 @@ EN = {
     "lbl_freq": "Frequency",
     "opt_hz": "{v} Hz",
     "lbl_amp": "Volume (% of full scale)",
-    "opt_percent": "{v} %",
+    "warn_amp_range": "Type a number between {low} and {high}. Until this is "
+                      "a valid number, the last good one stays in force.",
     "lbl_duration": "Pulse length",
     "opt_sec": "{v} s",
     "warn_short_pulse": "Careful: {d} s at {f} Hz is only {p} periods. Less "
@@ -306,6 +324,16 @@ EN = {
     "sw_active": "Keep the speakers awake",
     "sw_autostart": "Start when I log in to Windows",
     "sw_log": "Write a log file",
+    # Problems with nowhere else to show - a packaged app has no console.
+    # See problem() in keep_alive.py. These are also what the LOG says, so
+    # they have to read sensibly on their own line in a text file.
+    "warn_config": "The settings could not be read, so the defaults are in "
+                   "use - including which speakers are picked. Have a look at "
+                   "config.json. ({error})",
+    "warn_log": "The log file could not be written, so nothing is being "
+                "recorded. ({error})",
+    "warn_log_rotate": "The log outgrew its size and a new file could not be "
+                       "started, so it keeps growing. ({error})",
 
     # --- pause card ----------------------------------------------------
     "card_pause": "Pause for a while",
@@ -378,6 +406,13 @@ EN = {
                         "the clock area and run setup again)",
     "ins_prob_registry": "the entry in the list of applications",
     "ins_prob_task": "the task in Task Scheduler",
+    "ins_prob_task_hold": "holding the scheduled task off during the install "
+                          "(it may have started the app again meanwhile - "
+                          "restart the computer)",
+    "ins_prob_language_elsewhere": "handing the language to the app (the "
+                                   "settings belong to a different user than "
+                                   "the one running setup - switch the "
+                                   "language in the app's window)",
     "ins_prob_task_off": "removing start at logon (the app will keep starting "
                          "on its own)",
 

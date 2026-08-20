@@ -18,7 +18,7 @@
   "_freq_hz": "Pulse frequency. 20 Hz is below what a person hears as a tone.",
   "freq_hz": 20,
 
-  "_amp_percent": "Volume in % of full scale, 0.01 to 100. 1 % = -40 dBFS.",
+  "_amp_percent": "Volume in % of full scale. 1 % = -40 dBFS.",
   "amp_percent": 1.0,
 
   "_duration_s": "Pulse length. Must fit at least two full waves of freq_hz.",

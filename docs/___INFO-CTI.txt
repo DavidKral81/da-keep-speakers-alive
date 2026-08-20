@@ -201,8 +201,7 @@ potřebného — rezerva nic nestojí, protože ji stejně neslyšíš.
 CO SE DÁ NASTAVIT
 
   Frekvence     5 až 100 Hz     čím níž, tím hůř slyšitelné
-  Hlasitost     0,01 až 100 %   píše se ručně; % plného rozsahu
-                                (1 % = -40 dBFS)
+  Hlasitost     0,1 až 10 %     % plného rozsahu (1 % = -40 dBFS)
   Délka         0,1 až 2 s
 
 DVĚ VĚCI, KTERÉ STOJÍ ZA TO VĚDĚT

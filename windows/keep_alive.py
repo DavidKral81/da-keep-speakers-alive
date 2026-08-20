@@ -967,12 +967,8 @@ class Settings:
     # (5 Hz in a 0.1 s pulse is a fifth of a wave) - otherwise the warning
     # below the controls could never appear and would be guarding nothing.
     FREQS = [5, 10, 15, 20, 25, 30, 40, 50, 60, 80, 100]
+    AMPS = [0.1, 0.2, 0.5, 1.0, 2.0, 3.0, 5.0, 10.0]
     DURATIONS = [0.1, 0.2, 0.3, 0.4, 0.6, 1.0, 2.0]
-    # The volume is TYPED, not picked from a list, so it needs limits instead
-    # of options. 100 % is full scale - the point where the wave would start
-    # clipping - and the bottom end is where a tone stops being a signal at
-    # all. Anything outside is refused and said so, never quietly rounded.
-    AMP_MIN, AMP_MAX = 0.01, 100.0
     PAUSES = [15, 30, 60, 120, 240, 480]
 
     def __init__(self, root, tray=None):
@@ -1274,79 +1270,6 @@ class Settings:
         row.key = key
         return row
 
-    def _number_entry(self, parent, label, unit, key, default, low, high,
-                      hint):
-        """A number the user TYPES in, where a list of options gets in the way.
-
-        Built to look like _select on purpose - same background, same font,
-        same padding, same full width, and the unit sits at the right edge
-        where a drop-down keeps its arrow. A control that is almost like the
-        others is worse than one that is plainly different.
-
-        The value takes effect as soon as what is typed makes sense, the same
-        way picking from a list does. While it does not make sense, the last
-        good value stays in force and the reason is shown underneath - and
-        leaving the box puts that good value back into it, so the window can
-        never sit there showing a number that is not the one being used.
-
-        No silent rounding or clamping: a number outside the range is refused
-        and said so, not quietly turned into the nearest allowed one.
-        """
-        if label:
-            tk.Label(parent, text=label, bg=parent["bg"], fg=self.LABEL,
-                     font=("Segoe UI", 9)).pack(anchor="w", pady=(6, 0))
-        row = tk.Frame(parent, bg="#232b36")
-        row.pack(anchor="w", fill="x", pady=(1, 4))
-        var = tk.StringVar(value=number(CFG.get(key, default)))
-        entry = tk.Entry(row, textvariable=var, bg="#232b36", fg=self.FG,
-                         insertbackground=self.FG, relief="flat",
-                         borderwidth=0, highlightthickness=0,
-                         font=("Segoe UI", 10))
-        entry.pack(side="left", fill="x", expand=True, padx=(10, 0), pady=6)
-        # the unit needs no translating - "%" and "Hz" read the same in both
-        tk.Label(row, text=unit, bg="#232b36", fg="#c3ccd8",
-                 font=("Segoe UI", 10)).pack(side="right", padx=(0, 12))
-        message = tk.Label(parent, text="", bg=parent["bg"], fg="#ffcf8a",
-                           font=("Segoe UI", 9), justify="left",
-                           wraplength=self.CARD_WIDTH - 40)
-
-        def parse(text):
-            # A comma is what a Czech keyboard gives and what number() writes
-            # back into the box, so both separators have to be understood.
-            try:
-                value = float(text.strip().replace(",", "."))
-            except ValueError:
-                return None
-            return value if low <= value <= high else None
-
-        def typed(*_):
-            value = parse(var.get())
-            # Whether the message is up is read from its own text, never from
-            # winfo_ismapped() - that answers a redraw late, so it is always
-            # one step behind what is on screen.
-            shown = bool(message.cget("text"))
-            if value is None:
-                if not shown:
-                    message.pack(anchor="w", pady=(0, 4))
-                message.configure(text=hint)
-                return
-            if shown:
-                message.configure(text="")
-                message.pack_forget()
-            # only when it really changed - otherwise every keystroke would
-            # write the settings file and add a line to the log
-            if value != CFG.get(key, default):
-                self._set(key, value)
-
-        def restore(_=None):
-            if parse(var.get()) is None:
-                var.set(number(CFG.get(key, default)))
-
-        var.trace_add("write", typed)
-        entry.bind("<FocusOut>", restore)
-        entry.bind("<Return>", restore)
-        return entry
-
     def _select(self, parent, label, pairs, current, action):
         """A drop-down list. Every setting in the window is one of these, so
         the controls all look and behave the same."""
@@ -1434,16 +1357,10 @@ class Settings:
                      [(tx("opt_hz", v=number(v)), v) for v in self.FREQS],
                      CFG.get("freq_hz", 20),
                      lambda v: self._set("freq_hz", v, warn=True))
-        # Typed in, not picked from a list (David 20.08.2026): the useful
-        # values are spread over three orders of magnitude and any list short
-        # enough to read leaves out the one somebody needs.
-        # rebuilt with the card on a language switch, so the reference cannot
-        # be left pointing at a widget that is already gone
-        self.amp_entry = self._number_entry(
-            card, tx("lbl_amp"), "%", "amp_percent", 1.0,
-            self.AMP_MIN, self.AMP_MAX,
-            tx("warn_amp_range", low=number(self.AMP_MIN),
-               high=number(self.AMP_MAX)))
+        self._select(card, tx("lbl_amp"),
+                     [(tx("opt_percent", v=number(v)), v) for v in self.AMPS],
+                     CFG.get("amp_percent", 1.0),
+                     lambda v: self._set("amp_percent", v))
         self._select(card, tx("lbl_duration"),
                      [(tx("opt_sec", v=number(v)), v) for v in self.DURATIONS],
                      CFG.get("duration_s", 0.4),

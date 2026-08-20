@@ -215,8 +215,7 @@ cannot hear it anyway.
 WHAT YOU CAN CHANGE
 
   Frequency     5 to 100 Hz     the lower, the harder to hear
-  Volume        0.01 to 100 %   typed in by hand; % of full scale
-                                (1 % = -40 dBFS)
+  Volume        0.1 to 10 %     % of full scale (1 % = -40 dBFS)
   Length        0.1 to 2 s
 
 TWO THINGS WORTH KNOWING

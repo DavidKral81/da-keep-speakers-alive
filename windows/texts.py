@@ -115,8 +115,7 @@ CS = {
     "lbl_freq": "Frekvence",
     "opt_hz": "{v} Hz",
     "lbl_amp": "Hlasitost (% plného rozsahu)",
-    "warn_amp_range": "Zadej číslo od {low} do {high}. Dokud tu není platné "
-                      "číslo, platí ta poslední správná hodnota.",
+    "opt_percent": "{v} %",
     "lbl_duration": "Délka impulzu",
     "opt_sec": "{v} s",
     "warn_short_pulse": "Pozor: {d} s při {f} Hz je jen {p} periody. Kratší "
@@ -310,8 +309,7 @@ EN = {
     "lbl_freq": "Frequency",
     "opt_hz": "{v} Hz",
     "lbl_amp": "Volume (% of full scale)",
-    "warn_amp_range": "Type a number between {low} and {high}. Until this is "
-                      "a valid number, the last good one stays in force.",
+    "opt_percent": "{v} %",
     "lbl_duration": "Pulse length",
     "opt_sec": "{v} s",
     "warn_short_pulse": "Careful: {d} s at {f} Hz is only {p} periods. Less "

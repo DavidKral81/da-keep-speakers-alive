@@ -61,9 +61,12 @@ def main():
         # the tray as it was before 20.08.2026: four states out of five, so
         # "partial" threw a KeyError and the icon froze for good
         K.COLORS.pop("partial", None)
-        # a typed volume with no upper limit, so 150 % of full scale would be
-        # taken as a setting - the check below has to notice
-        K.Settings.AMP_MAX = 1e9
+        # one tray label written out by hand instead of looked up - the menu
+        # still builds, still has functions for labels, and still opens; only
+        # that one item is stuck in Czech for ever
+        _tx = K.tx
+        K.tx = lambda key, **kw: ("Ukončit aplikaci" if key == "tray_quit"
+                                  else _tx(key, **kw))
     saved_config = json.dumps(dict(K.CFG))
     root = tk.Tk()
     root.withdraw()
@@ -194,44 +197,47 @@ def main():
             settings.anim = None
         step("a pulse from the tray shows on the bar too", tray_pulse)
 
-        def typed_volume():
-            """The volume is TYPED, so nonsense can be typed into it.
+        def tray_menu_follows_the_language():
+            """The menu is built ONCE - it has to follow a language switch.
 
-            A drop-down could only ever offer valid values; a box cannot. What
-            matters is that a bad number does not become a setting, that the
-            user is told, and that leaving the box does not strand it showing
-            a number the app is not using.
+            Its labels are functions so that pystray asks for them each time
+            the menu is opened. But "is the label a function?" tests nothing:
+            pystray wraps a hard-coded string into a function just the same
+            (measured 20.08.2026 - callable() on the raw attribute of an item
+            made from a plain string is True as well). The only question worth
+            asking is the behaviour: does the SAME menu say something else
+            afterwards?
+
+            Nothing else covers this. The menu is a pile of lambdas that is
+            only visible on a right click, so a half-translated one would sit
+            there unnoticed.
             """
-            box = settings.amp_entry
-            good = K.CFG["amp_percent"]
+            def labels():
+                out = []
+                for item in tray.icon.menu:
+                    if item is K.pystray.Menu.SEPARATOR:
+                        continue        # '- - - -' in every language
+                    out.append(item.text)
+                    out += [sub.text for sub in (item.submenu or [])]
+                return out
 
-            box.delete(0, "end")
-            box.insert(0, "2,5")               # a Czech comma, as typed here
-            assert K.CFG["amp_percent"] == 2.5, K.CFG["amp_percent"]
-            box.delete(0, "end")
-            box.insert(0, "0.75")              # and a full stop
-            assert K.CFG["amp_percent"] == 0.75, K.CFG["amp_percent"]
-
-            # over full scale: refused, and the old value left in force
-            box.delete(0, "end")
-            box.insert(0, "150")
-            assert K.CFG["amp_percent"] == 0.75, \
-                f"150 % was accepted: {K.CFG['amp_percent']}"
-            box.delete(0, "end")
-            box.insert(0, "abc")
-            assert K.CFG["amp_percent"] == 0.75, \
-                f"letters were accepted: {K.CFG['amp_percent']}"
-
-            # and leaving the box puts the value actually in use back
-            box.event_generate("<FocusOut>")
-            settings.win.update()
-            assert box.get() in ("0,75", "0.75"), box.get()
-
-            K.CFG["amp_percent"] = good
-        step("a volume typed by hand is taken, and nonsense is not",
-             typed_volume)
-
-        step("the tray menu builds", lambda: tray._menu())
+            was = K.texts.language()
+            try:
+                K.texts.set_language("cs")
+                czech = labels()
+                K.texts.set_language("en")
+                english = labels()
+                assert czech, "the menu has no labels at all"
+                assert len(czech) == len(english), \
+                    f"{len(czech)} items in Czech, {len(english)} in English"
+                # every one of them, not just the first: a menu where one item
+                # stayed behind is exactly what this exists to catch
+                stuck = [c for c, e in zip(czech, english) if c == e]
+                assert not stuck, f"stayed in the old language: {stuck}"
+            finally:
+                K.texts.set_language(was)
+        step("the tray menu follows a language switch",
+             tray_menu_follows_the_language)
         step("the tray survives having no running icon", tray.refresh)
 
         def tray_every_state():

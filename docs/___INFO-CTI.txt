@@ -143,6 +143,15 @@ JAK ČASTO POSÍLAT IMPULZ
     kratší než doba, po které reproduktory usnou. Když přesto
     usínají, zkrať ho.
 
+    Ve dvou případech se interval nečeká a impulz jde hned:
+    po spuštění aplikace (tedy i po přihlášení do Windows)
+    a po probuzení počítače — reproduktory mezitím usnuly
+    a čekat na ně dalších třeba 15 minut nemá smysl.
+    Když se impulz nepodaří přehrát (zařízení se po probuzení
+    ještě nestihlo přihlásit), zkusí se to znovu za 10, 20,
+    40 a pak po minutě — místo aby se čekal celý interval.
+    V řádku "Další impulz" je to vidět.
+
 JAKÝ IMPULZ POSÍLAT
     Frekvence, hlasitost a délka — podrobně v oddílu 5.
     Tlačítko "Vyzkoušet impulz" a pruh pod ním.
@@ -251,7 +260,9 @@ PRASKÁ TO
 Zapíná se v okně, v sekci "Chování aplikace". Vytvoří se úloha
 v Plánovači úloh Windows s názvem "Da Keep Speakers Alive":
 
-  - spuštění 30 sekund po přihlášení
+  - spuštění hned po přihlášení, bez zpoždění (reproduktory
+    spí od chvíle, kdy byl počítač vypnutý, takže impulz
+    potřebují právě teď)
   - restart při selhání: po 1 minutě, nejvýše 3x
   - bez časového omezení běhu (jinak by ji Windows po 3 dnech
     ukončily)

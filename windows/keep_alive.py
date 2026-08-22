@@ -391,6 +391,19 @@ class Engine(threading.Thread):
     needed, so a change in the window takes effect at the next pulse and no
     second copy of a setting can go stale."""
 
+    # How long to wait after a pulse that went wrong, instead of the whole
+    # interval. A USB dock is not back the instant the machine wakes up, and
+    # waiting out the interval left the speakers asleep for five minutes over
+    # something that fixed itself in seconds (seen in the log: a pulse failed
+    # at 20:02 on a device that was ready again well before the next one at
+    # 20:07). After these steps are used up it goes back to the interval - a
+    # device that is gone for good must not fill the log with retries.
+    RETRY_STEPS = (10, 20, 40, 60, 60, 60)
+
+    # A gap this much bigger than the loop expected means the machine was
+    # asleep rather than merely busy.
+    BREAK_S = 60
+
     def __init__(self):
         super().__init__(daemon=True)
         self.wake = threading.Event()   # settings changed / pulse now / quit
@@ -408,8 +421,22 @@ class Engine(threading.Thread):
         # and some did not. "The last pulse could not be played" is a lie in
         # that case, and the user has no way to tell it from a total failure.
         self.partly = False
-        self.paused_until = 0.0         # monotonic
+        # Wall clock, NOT monotonic: "pause for 15 minutes" means fifteen
+        # minutes of real time. The monotonic clock stands still while the
+        # machine sleeps, so a pause set on it came back from an overnight
+        # sleep with its full length still to run. Deriving it from the clock
+        # that keeps running needs no correction afterwards - and nothing that
+        # the engine thread and the window thread could overwrite for each
+        # other.
+        self.paused_until = 0.0         # wall clock (time.time)
         self.pulse_now = False
+        # How many pulses in a row went wrong. Drives the short retry below -
+        # reset to zero the moment one gets through.
+        self.retries = 0
+        self.woke_up = False            # the machine was asleep, pulse now
+        # The wall clock and the monotonic clock drifting apart is what gives
+        # a sleep away - see check_for_a_break().
+        self.clock_gap = time.time() - time.monotonic()
         self.playing_from = 0.0         # monotonic, 0 = nothing is playing now
         self.playing_span = 0.0         # how long the burst being played takes
 
@@ -418,8 +445,26 @@ class Engine(threading.Thread):
     def interval(self):
         return max(10, int(CFG.get("interval_s", 180)))
 
+    def gap(self):
+        """How long to wait after the last pulse before sending another.
+
+        Normally the interval the user chose. After a pulse that went wrong
+        it is one of RETRY_STEPS instead, so a device that is only a few
+        seconds late - a dock coming back after a wake-up, an output the
+        system has yet to re-register - is caught straight away rather than
+        one whole interval later.
+        """
+        if not self.error_items:
+            return self.interval()
+        step = self.retries - 1
+        if step < 0 or step >= len(self.RETRY_STEPS):
+            return self.interval()      # it is not coming back on its own
+        # never longer than the interval: a 30 s interval must not be
+        # stretched to 60 by a retry
+        return min(self.RETRY_STEPS[step], self.interval())
+
     def paused(self):
-        return max(0.0, self.paused_until - time.monotonic())
+        return max(0.0, self.paused_until - time.time())
 
     def due_in(self):
         """Seconds to the next pulse (None when nothing is scheduled)."""
@@ -429,7 +474,7 @@ class Engine(threading.Thread):
             return None
         if not self.last_at:
             return 0
-        return max(0.0, self.last_at + self.interval() - time.monotonic())
+        return max(0.0, self.last_at + self.gap() - time.monotonic())
 
     def playing(self):
         """(seconds already played, whole length) of the burst going out right
@@ -512,6 +557,9 @@ class Engine(threading.Thread):
             self.count += 1
             self.error_items = problems
             self.partly = bool(played) and bool(problems)
+            # Set next to error_items on purpose: gap() reads both, and the
+            # two drifting apart would either retry for ever or not at all.
+            self.retries = self.retries + 1 if problems else 0
             if problems:
                 in_english = "; ".join(tx_en(key, **kw) for key, kw in problems)
                 log(f"Pulse{reason}: {in_english}")
@@ -526,22 +574,65 @@ class Engine(threading.Thread):
             self.playing_from = 0.0
         return self.error_text()
 
+    def check_for_a_break(self):
+        """Notice that the machine was asleep, and ask for a pulse at once.
+
+        time.monotonic() runs on QueryPerformanceCounter on this platform,
+        and that stands still while the machine sleeps. Waiting for the
+        countdown to run out therefore does NOT work: after twelve hours of
+        standby the engine believed a couple of minutes had passed and sat
+        out the rest of the interval - with the speakers, which had slept
+        through it too, silent all the while.
+
+        The wall clock does not stand still, so the two drifting apart is the
+        one sign of a break that holds whatever the machine did - sleep,
+        hibernation, or the process being frozen. A clock put back by hand
+        (drift the other way) is ignored; a pulse too many would be harmless
+        anyway, a missing one is the whole problem.
+
+        It cannot tell a sleep from the clock being put FORWARD by more than
+        a minute (a time server correcting a badly wrong clock, someone
+        setting it by hand). The result is one pulse that was not due - which
+        is harmless, and the price of catching every real sleep. Nothing else
+        is decided here: the pause runs on the wall clock and needs no
+        correcting.
+
+        Runs in the engine thread, and touches only what that thread owns.
+        """
+        gap = time.time() - time.monotonic()
+        drift = gap - self.clock_gap
+        self.clock_gap = gap
+        if drift > self.BREAK_S and self.last_at:
+            self.woke_up = True
+            # last_at is on the same standing-still clock, so after the sleep
+            # it looks far more recent than it is: the window would say "last
+            # pulse 63 s ago (22:04)" at five in the morning, because the age
+            # comes from the monotonic clock and the time next to it from the
+            # wall clock. Moving it back by the drift makes the age real
+            # again - and the countdown along with it.
+            self.last_at -= drift
+
     def run(self):
         while not self.stop.is_set():
+            self.check_for_a_break()
             due = self.due_in()
             if self.pulse_now:
                 self.pulse_now = False
                 self.send(" (manual)")
             elif due is None:
-                pass                        # switched off or paused
-            elif due <= 0:
+                # switched off or paused - and a break noticed meanwhile is
+                # dropped rather than kept for whenever it is switched back on
+                self.woke_up = False
+            elif self.woke_up or due <= 0:
                 # Being very late means the process was frozen - the machine
                 # was asleep. The speakers slept through it too, so the pulse
                 # right now is exactly what is needed; it is only worth a note
                 # in the log.
-                late = (time.monotonic() - self.last_at - self.interval()
+                late = (time.monotonic() - self.last_at - self.gap()
                         if self.last_at else 0)
-                self.send(" (after a break)" if late > 60 else "")
+                after_a_break = self.woke_up or late > 60
+                self.woke_up = False
+                self.send(" (after a break)" if after_a_break else "")
             # Waking up at least once a second keeps the countdown in the
             # window honest and picks up a changed interval straight away.
             self.wake.wait(timeout=1.0)
@@ -552,7 +643,7 @@ class Engine(threading.Thread):
         self.wake.set()
 
     def pause(self, minutes):
-        self.paused_until = time.monotonic() + minutes * 60 if minutes else 0.0
+        self.paused_until = time.time() + minutes * 60 if minutes else 0.0
         log(f"Paused for {minutes} min." if minutes else "Pause cancelled.")
         self.wake.set()
 
@@ -599,6 +690,13 @@ def _create_task():
 
     WakeToRun stays false and there is no time trigger at all: this app must
     never be a reason for the computer to wake up.
+
+    The logon trigger carries NO delay. It used to wait 30 seconds, which is
+    30 seconds of silence at every logon - and the speakers have been asleep
+    since the machine was switched off, so that is exactly the moment they
+    need the pulse. Starting the moment the desktop appears is safe because a
+    pulse that arrives before the audio device is ready is retried within
+    seconds now (see Engine.RETRY_STEPS) instead of a whole interval later.
     """
     program, arguments = _launch_parts()
     user = (os.environ.get("USERDOMAIN", "") + "\\"
@@ -613,7 +711,6 @@ def _create_task():
     <LogonTrigger>
       <Enabled>true</Enabled>
       <UserId>{e(user)}</UserId>
-      <Delay>PT30S</Delay>
     </LogonTrigger>
   </Triggers>
   <Principals>
@@ -685,10 +782,11 @@ def autostart_enabled(refresh=False):
 def autostart_set(enable):
     """Turn start-at-logon on or off.
 
-    Only the scheduled task is used - it can delay the start and restart the
-    app after a crash. There is deliberately NO fallback into the Startup
-    folder: when the task cannot be created the user has to be told, not
-    quietly given a different mechanism they did not ask for.
+    Only the scheduled task is used - it starts the app at logon (with no
+    delay, see _create_task) and restarts it after a crash. There is
+    deliberately NO fallback into the Startup folder: when the task cannot be
+    created the user has to be told, not quietly given a different mechanism
+    they did not ask for.
     """
     global _autostart
     if enable:
@@ -1065,6 +1163,11 @@ class Settings:
                                                       anchor="nw")
         self.grid_frame = tk.Frame(inner, bg=self.BG)
         self.grid_frame.pack(anchor="n", pady=(14, 10))
+        # One frame per column, each packing its own cards under one another.
+        # _relayout only moves these two - never the cards themselves, which
+        # Tk would not allow anyway.
+        self.column_frames = [tk.Frame(self.grid_frame, bg=self.BG)
+                              for _ in range(2)]
 
         def measured(_=None):
             content = self.canvas.bbox("all")
@@ -1098,13 +1201,23 @@ class Settings:
 
     # --- layout helpers --------------------------------------------------
 
-    def _card(self, title, description):
+    def _card(self, title, description, column):
         """One settings section - heading, short explanation, content.
 
-        The card is not packed - _relayout places it according to the window
-        width, so every card in a column comes out the same width.
+        `column` (0 or 1) says which side the card belongs on in a wide
+        window. It is given here, at the card, rather than worked out from a
+        count: Tk cannot move a widget to another parent afterwards, so the
+        card is packed into its column at birth and stays there. What
+        _relayout changes is where the two COLUMNS sit, not where the cards
+        sit - so the height of a card on one side can never leave a gap on
+        the other.
+
+        In a narrow window the columns stack, so the cards come out in the
+        order column 0 first, then column 1 - keep that in mind when adding
+        one.
         """
-        outer = tk.Frame(self.grid_frame, bg=self.BG)
+        outer = tk.Frame(self.column_frames[column], bg=self.BG)
+        outer.pack(side="top", fill="x", pady=(0, 14))
         self.cards.append(outer)
         tk.Label(outer, text=title, bg=self.BG, fg=self.FG,
                  font=("Segoe UI", 12, "bold")).pack(anchor="w", pady=(0, 1))
@@ -1117,7 +1230,16 @@ class Settings:
         return inner
 
     def _relayout(self, event=None):
-        """One or two columns, depending on how wide the window is."""
+        """One or two columns, depending on how wide the window is.
+
+        Only the two column FRAMES are placed here; the cards inside them are
+        packed under one another and never move. That is what keeps the
+        layout tight. Placing the cards in a grid directly - which is what
+        this did at first - looked broken, because a grid row is as tall as
+        the TALLER of the two cards in it: a short card left a couple of
+        hundred pixels of empty space under itself while the tall one beside
+        it filled the row.
+        """
         width = self.canvas.winfo_width()
         wanted = 2 if width >= 2 * self.CARD_WIDTH + 100 else 1
         if wanted == self.columns:
@@ -1132,18 +1254,19 @@ class Settings:
                 weight=1 if i < wanted else 0,
                 uniform="cards" if i < wanted else "")
 
-        per_column = -(-len(self.cards) // wanted)     # round up
-        for index, card in enumerate(self.cards):
-            column = index // per_column
-            row = index % per_column
+        for index, column in enumerate(self.column_frames):
             # the padding has to be the same on BOTH columns, otherwise one
             # column ends up narrower by that gap
             gap = 10 if wanted == 2 else 0
-            card.grid(row=row, column=column, sticky="new",
-                      padx=(0, gap) if column == 0 else (gap, 0),
-                      pady=(0, 14))
-        self.links_frame.grid(row=per_column, column=0, columnspan=wanted,
-                              sticky="ew", pady=(2, 22))
+            if wanted == 2:
+                column.grid(row=0, column=index, sticky="new",
+                            padx=(0, gap) if index == 0 else (gap, 0))
+            else:
+                # stacked, so the cards keep the order they were built in
+                column.grid(row=index, column=0, sticky="new", padx=0)
+        self.links_frame.grid(row=1 if wanted == 2 else len(self.column_frames),
+                              column=0, columnspan=wanted, sticky="ew",
+                              pady=(2, 22))
         self._set_minimum()
 
     def _set_minimum(self):
@@ -1311,7 +1434,7 @@ class Settings:
 
     def _build(self):
         # --- 1. status -------------------------------------------------
-        card = self._card(tx("card_status"), None)
+        card = self._card(tx("card_status"), None, 0)
         self.status_line = tk.Label(card, text="", bg=self.CARD, fg=self.FG,
                                     font=("Segoe UI", 11, "bold"),
                                     justify="left",
@@ -1336,7 +1459,7 @@ class Settings:
         self._pulse_bar(card)
 
         # --- 2. devices ------------------------------------------------
-        card = self._card(tx("card_devices"), tx("card_devices_desc"))
+        card = self._card(tx("card_devices"), tx("card_devices_desc"), 0)
         self._switch(card, tx("sw_use_default"), "use_default_device")
         self.devices_frame = tk.Frame(card, bg=self.CARD)
         self.devices_frame.pack(fill="x", pady=(2, 0))
@@ -1345,14 +1468,14 @@ class Settings:
         self._fill_devices()
 
         # --- 3. interval -----------------------------------------------
-        card = self._card(tx("card_interval"), tx("card_interval_desc"))
+        card = self._card(tx("card_interval"), tx("card_interval_desc"), 0)
         self._select(card, tx("lbl_interval"),
                      [(interval_label(s), s) for s in self.INTERVALS],
                      int(CFG.get("interval_s", 180)),
                      lambda v: self._set("interval_s", v))
 
         # --- 4. signal -------------------------------------------------
-        card = self._card(tx("card_signal"), tx("card_signal_desc"))
+        card = self._card(tx("card_signal"), tx("card_signal_desc"), 1)
         self._select(card, tx("lbl_freq"),
                      [(tx("opt_hz", v=number(v)), v) for v in self.FREQS],
                      CFG.get("freq_hz", 20),
@@ -1374,7 +1497,7 @@ class Settings:
         self._refresh_warning()
 
         # --- 5. application --------------------------------------------
-        card = self._card(tx("card_app"), None)
+        card = self._card(tx("card_app"), None, 1)
         self.sw_active = self._switch(card, tx("sw_active"), "active")
         self.sw_autostart = self._switch(card, tx("sw_autostart"), None,
                                          autostart_enabled, autostart_set)
@@ -1393,7 +1516,7 @@ class Settings:
         # truths waiting to disagree.
 
         # --- 6. pause --------------------------------------------------
-        card = self._card(tx("card_pause"), tx("card_pause_desc"))
+        card = self._card(tx("card_pause"), tx("card_pause_desc"), 1)
         self.pause_var = self._select(
             card, None,
             [(tx("opt_not_paused"), 0)]

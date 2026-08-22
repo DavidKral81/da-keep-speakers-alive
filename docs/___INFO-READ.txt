@@ -152,6 +152,15 @@ HOW OFTEN TO SEND A PULSE
     has to be shorter than the time your speakers take to fall
     asleep. If they still do, shorten it.
 
+    Two things do not wait for the interval and get a pulse
+    right away: starting the app (so, logging in to Windows too)
+    and the computer waking up - the speakers fell asleep
+    meanwhile, and waiting another fifteen minutes for them
+    makes no sense. If the pulse cannot be played (the device
+    has yet to come back after a wake-up), it is tried again
+    after 10, 20, 40 seconds and then every minute, instead of
+    a whole interval later. The "Next pulse" line shows it.
+
 WHAT THE PULSE SOUNDS LIKE
     Frequency, volume, length - see section 5. Plus the "Try a
     pulse" button and the bar under it.
@@ -265,7 +274,9 @@ IT CRACKLES
 Turned on in the window, under "Application behaviour". It creates
 a task in Windows Task Scheduler named "Da Keep Speakers Alive":
 
-  - starts 30 seconds after logon
+  - starts at logon, with no delay (the speakers have been
+    asleep since the machine was switched off, so that is
+    exactly when they need the pulse)
   - restart on failure: after 1 minute, at most 3 times
   - no execution time limit (otherwise Windows would kill it after
     3 days)

@@ -67,6 +67,16 @@ def main():
         _tx = K.tx
         K.tx = lambda key, **kw: ("Ukončit aplikaci" if key == "tray_quit"
                                   else _tx(key, **kw))
+        # a card with a hole under it - what the grid layout did before
+        # 22.08.2026, when a short card left the height of the taller one
+        # beside it as empty space
+        _relayout = K.Settings._relayout
+
+        def gappy(self, event=None):
+            _relayout(self, event)
+            if self.cards:
+                self.cards[0].pack_configure(pady=(0, 200))
+        K.Settings._relayout = gappy
     saved_config = json.dumps(dict(K.CFG))
     root = tk.Tk()
     root.withdraw()
@@ -289,6 +299,38 @@ def main():
                 K.CFG["active"] = was[2].get("active", True)
         step("the tray copes with every state, not just 'ok'", tray_every_state)
         step("the device list can be reloaded", settings._rescan)
+
+        def two_columns_without_gaps():
+            """Wide window: the cards must sit right under one another.
+
+            Until 22.08.2026 the cards were placed in a grid, and a grid row
+            is as tall as the TALLER of its two cards - a short card left
+            some two hundred pixels of empty space under itself while the
+            tall one beside it filled the row. Measured, not eyeballed:
+            preview.py is for looking, this is for catching a return of it.
+            """
+            was = settings.win.geometry()
+            try:
+                settings.win.geometry(f"{2 * K.Settings.CARD_WIDTH + 140}x900")
+                # update(), not update_idletasks(): the canvas only learns its
+                # new width once the resize has actually been handled, and
+                # _relayout reads that width to decide on the second column
+                settings.win.update()
+                settings._relayout()
+                settings.win.update()
+                assert settings.columns == 2, f"{settings.columns} column(s)"
+                for column in settings.column_frames:
+                    inside = [c for c in settings.cards if c.master is column]
+                    assert inside, "a column with no cards in it"
+                    for above, below in zip(inside, inside[1:]):
+                        gap = below.winfo_y() - (above.winfo_y()
+                                                 + above.winfo_height())
+                        assert gap <= 20, f"{gap} px of empty space under a card"
+            finally:
+                settings.win.geometry(was)
+                settings.win.update_idletasks()
+                settings._relayout()
+        step("the cards stack tight in two columns", two_columns_without_gaps)
 
         def closes():
             settings._pulse_now()               # with the animation running

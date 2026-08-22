@@ -290,6 +290,157 @@ def test_what_a_missing_device_reports():
         texts.set_language(saved_language)
 
 
+def test_retry_after_a_failed_pulse():
+    """A pulse that failed must be retried in seconds, not one interval later.
+
+    From the real log: the machine woke at 20:02, the USB dock was not back
+    yet, the pulse failed - and the next attempt was at 20:07, by which time
+    the device had been ready for minutes and the speakers had been silent
+    the whole while.
+
+    The counter-cases matter as much as the case: a successful pulse has to go
+    back to the user's interval (or the app would pulse every ten seconds for
+    ever), and a device that never comes back must stop being retried (or it
+    would fill the log at that rate).
+    """
+    print("retrying a pulse that went wrong")
+    engine = K.ENGINE
+    saved = (engine.retries, list(engine.error_items), engine.last_at,
+             engine.partly)
+    saved_cfg = dict(K.CFG)
+    saved_pause = engine.paused_until
+    try:
+        K.CFG["interval_s"] = 300
+        # Both of these decide due_in() before the gap ever gets a say, and
+        # both come from the user's real settings file. With the main switch
+        # off due_in() returns None and the check below would blow up on a
+        # TypeError that has nothing to do with retries.
+        K.CFG["active"] = True
+        engine.paused_until = 0.0
+        engine.last_at = K.time.monotonic()
+
+        engine.error_items, engine.retries = [], 0
+        check("a pulse that worked waits the whole interval",
+              engine.gap() == 300, engine.gap())
+
+        engine.error_items = [("err_no_device", {})]
+        engine.retries = 1
+        check("the first retry comes within seconds",
+              engine.gap() == 10, engine.gap())
+        check("and the countdown in the window says so too",
+              0 < engine.due_in() <= 10, engine.due_in())
+        engine.retries = 2
+        check("the second waits a little longer", engine.gap() == 20,
+              engine.gap())
+
+        engine.retries = len(engine.RETRY_STEPS) + 1
+        check("a device that never comes back stops being retried",
+              engine.gap() == 300, engine.gap())
+
+        # A retry must never be LONGER than the interval itself - at 30 s the
+        # 60 s step would push the pulse further away than doing nothing.
+        K.CFG["interval_s"] = 30
+        engine.retries = 4
+        check("a retry is never longer than the interval",
+              engine.gap() == 30, engine.gap())
+    finally:
+        engine.retries, engine.error_items, engine.last_at, engine.partly = saved
+        engine.paused_until = saved_pause
+        K.CFG.clear()
+        K.CFG.update(saved_cfg)
+
+
+def test_a_sleep_is_noticed():
+    """After the machine wakes up the pulse has to go out at once.
+
+    time.monotonic() runs on QueryPerformanceCounter here and stands still
+    while the machine sleeps, so the countdown alone never notices: twelve
+    hours of standby in the real log went by as "a couple of minutes" and the
+    app sat out the rest of the interval with the speakers already asleep.
+    Only the wall clock keeps running, so the two drifting apart is the test.
+
+    The counter-case is the one that makes this worth anything: an ordinary
+    second must NOT be mistaken for a sleep, or the app would pulse every
+    second for ever.
+    """
+    print("noticing that the machine was asleep")
+    engine = K.ENGINE
+    saved = (engine.woke_up, engine.clock_gap, engine.last_at,
+             engine.paused_until)
+    try:
+        engine.last_at = K.time.monotonic()
+
+        engine.woke_up = False
+        engine.clock_gap = K.time.time() - K.time.monotonic()
+        engine.check_for_a_break()
+        check("an ordinary second is not mistaken for a sleep",
+              engine.woke_up is False, engine.woke_up)
+
+        # the wall clock ran on for an hour while monotonic did not
+        engine.clock_gap = K.time.time() - K.time.monotonic() - 3600
+        engine.check_for_a_break()
+        check("an hour the monotonic clock slept through is noticed",
+              engine.woke_up is True, engine.woke_up)
+
+        # and having noticed it, the next reading must be clean again -
+        # otherwise every following second would count as another wake-up
+        engine.woke_up = False
+        engine.check_for_a_break()
+        check("and it is not reported a second time",
+              engine.woke_up is False, engine.woke_up)
+
+        # a clock put BACK (by hand, or by a time server) is not a wake-up
+        engine.clock_gap = K.time.time() - K.time.monotonic() + 3600
+        engine.check_for_a_break()
+        check("a clock put back is not treated as a wake-up",
+              engine.woke_up is False, engine.woke_up)
+
+        # The age of the last pulse has to survive the sleep as well. It is
+        # read off the monotonic clock while the time beside it comes from the
+        # wall clock, so without a correction the window said "last pulse 63 s
+        # ago (22:04)" at five in the morning.
+        engine.last_at = K.time.monotonic()
+        engine.clock_gap = K.time.time() - K.time.monotonic() - 3600
+        engine.check_for_a_break()
+        age = K.time.monotonic() - engine.last_at
+        check("and the last pulse is then as old as it really is",
+              3590 < age < 3610, age)
+    finally:
+        (engine.woke_up, engine.clock_gap, engine.last_at,
+         engine.paused_until) = saved
+
+
+def test_a_pause_runs_in_real_time():
+    """"Pause for 15 minutes" has to mean fifteen minutes of REAL time.
+
+    The deadline used to be kept on the monotonic clock, which stands still
+    while the machine sleeps - so a pause set in the evening came back from
+    an overnight standby with its full fifteen minutes still to run. It is on
+    the wall clock now, which needs no correcting afterwards and cannot be
+    overwritten by the engine thread and the window thread in turn.
+
+    Reading the deadline back against the wall clock is what proves which
+    clock it is on: the two are billions of seconds apart, so a mismatch
+    cannot pass unnoticed.
+    """
+    print("a pause in real time")
+    engine = K.ENGINE
+    saved_pause, saved_log = engine.paused_until, K.log
+    try:
+        K.log = lambda *a, **kw: None        # keeps the test out of the log
+        engine.pause(15)
+        check("a pause is measured on the clock that keeps running",
+              890 < engine.paused() <= 900, engine.paused())
+        check("and its deadline is wall-clock time, not time since boot",
+              abs(engine.paused_until - K.time.time() - 900) < 2,
+              engine.paused_until - K.time.time())
+        engine.pause(0)
+        check("cancelling it clears the deadline", engine.paused() == 0,
+              engine.paused())
+    finally:
+        engine.paused_until, K.log = saved_pause, saved_log
+
+
 # ------------------------------------------------------------ settings file
 
 RUNTIME_ONLY = {"window_geometry"}      # the app writes these for itself
@@ -460,6 +611,8 @@ def test_texts():
 def main():
     for test in (test_pulse, test_pulse_bar, test_pulse_failure_clears_the_bar,
                  test_devices, test_what_a_missing_device_reports,
+                 test_retry_after_a_failed_pulse, test_a_sleep_is_noticed,
+                 test_a_pause_runs_in_real_time,
                  test_config_encoding, test_problems, test_config_template,
                  test_texts):
         test()

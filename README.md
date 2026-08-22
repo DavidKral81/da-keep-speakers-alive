@@ -91,7 +91,10 @@ session.
 It does not keep the computer awake, and it cannot wake it up. A running
 process has nothing to wake anything with: in hibernation it does not exist,
 and under Modern Standby Windows freezes it. After the machine wakes up, the
-overdue pulse goes out straight away.
+pulse goes out straight away rather than at the end of the interval — the
+speakers slept through it too. The same at logon. And if the pulse cannot be
+played because the device has yet to come back, it is retried within seconds
+instead of one interval later.
 
 ---
 

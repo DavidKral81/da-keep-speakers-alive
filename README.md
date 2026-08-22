@@ -163,7 +163,7 @@ would be your own copy.
 
 Both test files carry their own counter-cases: every check comes with a case
 that must make it complain, because a check nobody ever tried to break reads
-exactly like a check that does not work. `test_window.py --break-it` puts two
+exactly like a check that does not work. `test_window.py --break-it` puts five
 real, previously-shipped bugs back in and the run has to fail.
 
 `tools\tune.py` is the measuring rig the defaults came out of — it lists the

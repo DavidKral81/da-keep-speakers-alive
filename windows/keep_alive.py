@@ -569,8 +569,8 @@ class Engine(threading.Thread):
                     f"{duration} s)")
         finally:
             # Cleared only here, with the record of the pulse already complete:
-            # the bar asks about ENGINE.error the moment it stops moving, and
-            # would otherwise show the previous pulse's verdict for a frame.
+            # the bar asks error_text() the moment it stops moving, and would
+            # otherwise show the previous pulse's verdict for a frame.
             self.playing_from = 0.0
         return self.error_text()
 
@@ -612,27 +612,60 @@ class Engine(threading.Thread):
             # again - and the countdown along with it.
             self.last_at -= drift
 
+    def trouble(self, error):
+        """Something in the loop threw. Show it - never let it end the thread.
+
+        An unhandled error here used to take the whole engine with it, and
+        silently: error_items stays empty, so state() goes on answering "ok",
+        the icon stays green and the window keeps promising "Keeping the
+        speakers awake" while nothing is sent ever again. Catching it turns
+        that into the opposite - the status card, the tray colour and the log
+        all say what happened.
+
+        The error is kept as a key and arguments like every other problem, so
+        it reaches the window in the user's language and the log in English.
+        It counts as a failed pulse as well: the retry steps then try again
+        within seconds, and give up on their own if it keeps happening.
+
+        Not silenced: the same fault would repeat every second, so only a
+        message that CHANGED is written to the log. The text is compared, not
+        the exception object - two exceptions with identical messages are
+        still different objects, and comparing those would log every second.
+        """
+        text = f"{type(error).__name__}: {error}"
+        item = ("err_engine", {"error": text})
+        if self.error_items != [item]:
+            log(f"Engine error: {text}")
+        self.error_items = [item]
+        self.partly = False
+        self.retries = min(self.retries + 1, len(self.RETRY_STEPS) + 1)
+
     def run(self):
         while not self.stop.is_set():
-            self.check_for_a_break()
-            due = self.due_in()
-            if self.pulse_now:
-                self.pulse_now = False
-                self.send(" (manual)")
-            elif due is None:
-                # switched off or paused - and a break noticed meanwhile is
-                # dropped rather than kept for whenever it is switched back on
-                self.woke_up = False
-            elif self.woke_up or due <= 0:
-                # Being very late means the process was frozen - the machine
-                # was asleep. The speakers slept through it too, so the pulse
-                # right now is exactly what is needed; it is only worth a note
-                # in the log.
-                late = (time.monotonic() - self.last_at - self.gap()
-                        if self.last_at else 0)
-                after_a_break = self.woke_up or late > 60
-                self.woke_up = False
-                self.send(" (after a break)" if after_a_break else "")
+            try:
+                self.check_for_a_break()
+                due = self.due_in()
+                if self.pulse_now:
+                    self.pulse_now = False
+                    self.send(" (manual)")
+                elif due is None:
+                    # switched off or paused - and a break noticed meanwhile is
+                    # dropped rather than kept for whenever it is switched on
+                    self.woke_up = False
+                elif self.woke_up or due <= 0:
+                    # Being very late means the process was frozen - the
+                    # machine was asleep. The speakers slept through it too,
+                    # so the pulse right now is exactly what is needed; it is
+                    # only worth a note in the log.
+                    late = (time.monotonic() - self.last_at - self.gap()
+                            if self.last_at else 0)
+                    after_a_break = self.woke_up or late > 60
+                    self.woke_up = False
+                    self.send(" (after a break)" if after_a_break else "")
+            except Exception as error:
+                # Deliberately everything: this is the last line before the
+                # thread dies, and a dead engine is invisible to the user.
+                self.trouble(error)
             # Waking up at least once a second keeps the countdown in the
             # window honest and picks up a changed interval straight away.
             self.wake.wait(timeout=1.0)
@@ -765,6 +798,11 @@ def _create_task():
         try:
             path.unlink(missing_ok=True)
         except OSError:
+            # Swallowed on purpose, and the only such case here: schtasks has
+            # already read the file and the task either exists or does not -
+            # that verdict is the return value above. A leftover _task.xml in
+            # our own data folder changes nothing for the user, and a warning
+            # about it would point at a problem that is not one.
             pass
 
 
@@ -1013,10 +1051,13 @@ class PulseBar(tk.Frame):
         fraction = 0.0 if span <= 0 else min(1.0, max(0.0, done / span))
         state = ("partial" if partly else "error") if error else "ok"
         colour = STATE_COLOUR[state]
-        if span <= 0:
-            caption = ""
-        elif error:
+        if error:
+            # Before span, on purpose. A pulse that had nowhere to play takes
+            # zero seconds, and reading span first made the bar answer an
+            # outright failure with a blank line.
             caption = tx("bar_partial" if partly else "bar_failed")
+        elif span <= 0:
+            caption = ""
         elif fraction >= 1.0:
             caption = tx("bar_done", total=seconds_text(span))
         else:
@@ -1078,6 +1119,7 @@ class Settings:
         self.bars = []
         self.bar_full_until = 0.0
         self.bar_wait_until = 0.0
+        self.bar_count_before = 0
 
     # --- open / close ---------------------------------------------------
 
@@ -1193,6 +1235,7 @@ class Settings:
         self.anim = None
         self.bar_full_until = 0.0   # a finished bar stays visible this long
         self.bar_wait_until = 0.0   # a pulse was asked for and has yet to start
+        self.bar_count_before = ENGINE.count    # pulses sent before this one
         self.columns = 0
         self._build()
         self._relayout()
@@ -1718,6 +1761,11 @@ class Settings:
         pulse `grace` seconds to begin."""
         self.bar_wait_until = max(self.bar_wait_until,
                                   time.monotonic() + grace)
+        # What the pulse counter looked like BEFORE this one, so the loop can
+        # tell "it has not started yet" from "it has been and gone" - see
+        # _animate(). A pulse with no device to play on takes no time at all
+        # and would otherwise be indistinguishable from nothing happening.
+        self.bar_count_before = ENGINE.count
         if self.anim is None:
             self._animate()
 
@@ -1741,6 +1789,14 @@ class Settings:
             error, partly = ENGINE.error_text(), ENGINE.partly
         elif now < self.bar_wait_until:
             done = span = 0.0                    # asked for, not started yet
+            if ENGINE.count != self.bar_count_before:
+                # It HAS run - and played nothing at all, because nothing is
+                # ticked or every device on the list is unplugged. Silence is
+                # the one thing the bar must not answer with: the pulse is
+                # inaudible by design, so a button that produces no visible
+                # result whatsoever looks broken, and both manuals promise
+                # this bar turns red when something goes wrong.
+                error, partly = ENGINE.error_text(), ENGINE.partly
         else:
             for bar in self.bars:
                 bar.show(0.0, 0.0)               # back to an empty track
@@ -2012,6 +2068,10 @@ def main():
     try:
         tray.icon.stop()
     except Exception:
+        # Swallowed on purpose: we are on the way out, the window has already
+        # closed and pystray has nothing left to stop that matters. Reporting
+        # it would mean a message about a failure to tidy up an icon the user
+        # can no longer see - and there is nowhere left to show it anyway.
         pass
     log("Ended.")
     return 0

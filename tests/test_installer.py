@@ -243,6 +243,34 @@ try:
         entry = False
     check("entry removed from the list of applications", False, entry)
 
+    print("\n5b) A SHORTCUT THAT WILL NOT DELETE IS REPORTED, NOT SWALLOWED")
+    # The check above only ever sees the happy path: the shortcut goes, so
+    # "uninstalled" is true. Explorer or the search indexer holding a .lnk
+    # open makes unlink fail, and that used to pass in silence - the user was
+    # told "Uninstalled, thanks for trying it" with a Start menu entry still
+    # pointing at a program that was gone.
+    #
+    # The failure is pushed in directly: an unlink that refuses. Deleting the
+    # shortcut from outside cannot produce this - it would simply succeed.
+    I.install(task=False, start_menu=True, desktop=False, report=report)
+    said = []
+    real_unlink = Path.unlink
+
+    def refuses(self, missing_ok=False):
+        if self == I.STARTMENU:
+            raise PermissionError("something has it open")
+        return real_unlink(self, missing_ok=missing_ok)
+
+    Path.unlink = refuses
+    try:
+        result = I.uninstall(delete_data=False, report=said.append)
+    finally:
+        Path.unlink = real_unlink
+    check("uninstall does NOT claim success", False, result)
+    check("and it names the shortcut that stayed", True,
+          any(I.STARTMENU.name in line for line in said))
+    real_unlink(I.STARTMENU, missing_ok=True)       # tidy up after the test
+
     print("\n6) INSTALLATION WHILE THE APP RUNS FROM SOURCE")
     # taskkill by process name misses this case - the app runs as pythonw.exe.
     # This verifies the installer finds it by the command line and stops it;

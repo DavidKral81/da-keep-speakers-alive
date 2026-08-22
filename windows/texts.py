@@ -167,6 +167,8 @@ CS = {
     "err_device_gone": "Zařízení „{name}“ není připojené. Zapoj ho, nebo ho "
                        "odškrtni v seznamu reproduktorů.",
     "err_play": "Přehrání na „{name}“ selhalo: {error}",
+    "err_engine": "Aplikace narazila na neočekávanou chybu: {error}. "
+                  "Zkusí to znovu za chvíli.",
     "err_autostart": "Úlohu v Plánovači úloh se nepodařilo vytvořit. "
                      "Spouštění po přihlášení zůstává vypnuté.",
 
@@ -362,6 +364,8 @@ EN = {
     "err_device_gone": "Device “{name}” is not connected. Plug it in, or "
                        "untick it in the list of speakers.",
     "err_play": "Playback on “{name}” failed: {error}",
+    "err_engine": "The app hit an unexpected error: {error}. It will try "
+                  "again shortly.",
     "err_autostart": "The task could not be created in Task Scheduler. "
                      "Starting at logon stays switched off.",
 

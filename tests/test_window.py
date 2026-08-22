@@ -9,9 +9,13 @@ Run before every release:
 
     .venv\\Scripts\\python.exe tests\\test_window.py
 
-    ... --break-it     deliberately re-introduces two bugs - the mouse wheel
-                       one and a pulse bar that never moves - to prove the
-                       checks for them can actually fail
+    ... --break-it     deliberately re-introduces five bugs the app really
+                       shipped with, to prove the checks for them can fail:
+                       a pulse bar that never moves, a tray missing the
+                       "partial" state, a tray label written out by hand
+                       instead of translated, a card with a hole under it,
+                       and a mouse wheel binding that piles up. The run has
+                       to end with several FAILs and a non-zero exit code.
 
 The settings file is saved and put back at the end, so a test run cannot
 change what the app does afterwards.
@@ -78,6 +82,11 @@ def main():
                 self.cards[0].pack_configure(pady=(0, 200))
         K.Settings._relayout = gappy
     saved_config = json.dumps(dict(K.CFG))
+    # Every check that asks the engine for its state would otherwise depend on
+    # the user's own main switch: state() answers "off" before it looks at
+    # anything else, so with "Keep the speakers awake" unticked the pause step
+    # below fails for a reason that has nothing to do with the window.
+    K.CFG["active"] = True
     root = tk.Tk()
     root.withdraw()
     settings = K.Settings(root)
@@ -197,6 +206,41 @@ def main():
                 assert bar.shown[0] == 0.0 and bar.shown[1] == "", bar.shown
             assert settings.anim is None, "the animation runs on for nothing"
         step("the pulse bar fills and then stops on its own", pulse_bar)
+
+        def bar_speaks_up_when_nothing_played():
+            """A pulse with nowhere to go must still be visible.
+
+            With no device ticked - or every ticked device unplugged - the
+            pulse takes zero seconds, so the bar had nothing to draw and said
+            nothing at all: three seconds of blank and then an empty track.
+            The pulse is inaudible by design, so that is a button which does
+            nothing whatsoever as far as the user can tell, and both manuals
+            promise this bar turns red instead.
+            """
+            saved_items, saved_partly = list(K.ENGINE.error_items), K.ENGINE.partly
+            saved_count = K.ENGINE.count
+            try:
+                settings._start_bar(3.0)            # asked for, not begun yet
+                # what a pulse with nothing to play on leaves behind
+                K.ENGINE.playing_from = K.ENGINE.playing_span = 0.0
+                K.ENGINE.error_items = [("err_no_device", {})]
+                K.ENGINE.partly = False
+                K.ENGINE.count = saved_count + 1
+                settings._animate()
+                root.update()
+                for bar in settings.bars:
+                    fraction, caption, colour = bar.shown
+                    assert caption, "the bar says nothing about a failed pulse"
+                    assert colour == K.STATE_COLOUR["error"], colour
+            finally:
+                K.ENGINE.error_items, K.ENGINE.partly = saved_items, saved_partly
+                K.ENGINE.count = saved_count
+                settings.bar_full_until = settings.bar_wait_until = 0.0
+                if settings.anim is not None:
+                    settings.win.after_cancel(settings.anim)
+                    settings.anim = None
+        step("a pulse that played nothing still shows on the bar",
+             bar_speaks_up_when_nothing_played)
 
         def tray_pulse():
             # a pulse asked for from the tray menu is the same pulse, so the

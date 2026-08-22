@@ -609,6 +609,13 @@ def uninstall(delete_data, report):
             lnk.unlink(missing_ok=True)
         except OSError:
             pass
+    # Asked, not assumed - the same as the task above and the folders below.
+    # Explorer or the search indexer can hold a .lnk open, the unlink then
+    # fails, and a Start menu entry pointing at a program that is gone is
+    # exactly what the user would find weeks later. Saying "Uninstalled,
+    # thanks for trying it" over that is the failure this must not repeat.
+    shortcuts_left = [lnk.name for lnk in (STARTMENU, DESKTOP)
+                      if lnk.exists()]
 
     report(tx("uni_registry"))
     try:
@@ -619,6 +626,7 @@ def uninstall(delete_data, report):
     left = []
     if task_left:
         left.append(tx("uni_prob_task"))
+    left += shortcuts_left
     if delete_data:
         report(tx("uni_data"))
         if DATA is None or data_belongs_to_someone_else():

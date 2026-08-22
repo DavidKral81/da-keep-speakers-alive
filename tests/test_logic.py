@@ -231,10 +231,19 @@ def test_what_a_missing_device_reports():
     saved_error, saved_partly = list(engine.error_items), engine.partly
     saved_cfg = dict(K.CFG)
     saved_language = texts.language()
+    saved_pause = engine.paused_until
     written = []
     try:
         K.log = written.append          # keeps the test out of the real log
         texts.set_language("cs")
+        # state() looks at the main switch and at the pause BEFORE it looks at
+        # anything that went wrong, and both come from the user's own settings
+        # file. With "Keep the speakers awake" off, the checks below would get
+        # "off" instead of "error" and fail for a reason that has nothing to do
+        # with missing devices. Third time this bites - see CFG["log"] and the
+        # retry test.
+        K.CFG["active"] = True
+        engine.paused_until = 0.0
         gone = "Speakers of a machine long gone"
 
         K.CFG["use_default_device"] = False
@@ -285,6 +294,7 @@ def test_what_a_missing_device_reports():
     finally:
         K.targets, K.log, K.play = saved_targets, saved_log, saved_play
         engine.error_items, engine.partly = saved_error, saved_partly
+        engine.paused_until = saved_pause
         K.CFG.clear()
         K.CFG.update(saved_cfg)
         texts.set_language(saved_language)
@@ -309,6 +319,7 @@ def test_retry_after_a_failed_pulse():
              engine.partly)
     saved_cfg = dict(K.CFG)
     saved_pause = engine.paused_until
+    saved_targets, saved_log, saved_play = K.targets, K.log, K.play
     try:
         K.CFG["interval_s"] = 300
         # Both of these decide due_in() before the gap ever gets a say, and
@@ -343,7 +354,30 @@ def test_retry_after_a_failed_pulse():
         engine.retries = 4
         check("a retry is never longer than the interval",
               engine.gap() == 30, engine.gap())
+
+        # Everything above reads `retries`; nothing above WRITES it the way
+        # the app does. Setting it by hand in a test and asking gap() about it
+        # proves only that gap() can divide - with send() failing to count,
+        # the retry would never happen in the first place and every check so
+        # far would still pass.
+        K.log = lambda line: None       # the failures below are on purpose
+        engine.retries, engine.error_items = 0, []
+        K.targets = lambda devices=None: ([], ["Speakers long gone"])
+        engine.send(" (test)")
+        check("a pulse that went wrong is counted as a retry",
+              engine.retries == 1, engine.retries)
+        engine.send(" (test)")
+        check("and another one counts again", engine.retries == 2,
+              engine.retries)
+        K.targets = lambda devices=None: (
+            [{"index": 0, "name": "Works", "samplerate": 48000,
+              "channels": 2}], [])
+        K.play = lambda device, wave: None
+        engine.send(" (test)")
+        check("a pulse that got through puts the count back to zero",
+              engine.retries == 0, engine.retries)
     finally:
+        K.targets, K.log, K.play = saved_targets, saved_log, saved_play
         engine.retries, engine.error_items, engine.last_at, engine.partly = saved
         engine.paused_until = saved_pause
         K.CFG.clear()
@@ -439,6 +473,95 @@ def test_a_pause_runs_in_real_time():
               engine.paused())
     finally:
         engine.paused_until, K.log = saved_pause, saved_log
+
+
+def test_the_engine_loop_does_its_job():
+    """The loop itself, not the sums it uses. Two things it has to do:
+
+    1. Pulse the moment a wake-up is noticed, without waiting for the
+       countdown. Everything else about waking up is checked one function at a
+       time above - check_for_a_break() sets a flag, gap() divides - and all
+       of it would still pass with the flag never wired to a pulse at all.
+
+    2. Survive an unexpected error instead of ending the thread. That failure
+       is the silent kind: with the engine gone, error_items stays empty, so
+       state() answers "ok", the icon stays green and the window promises the
+       speakers are being kept awake while nothing is sent ever again.
+
+    The loop is run in THIS thread, one turn at a time - each stand-in stops
+    it, so run() returns instead of looping for the length of the test.
+    """
+    print("the engine loop does what the pieces cannot")
+    engine = K.ENGINE
+    saved = (engine.woke_up, engine.last_at, engine.retries,
+             list(engine.error_items), engine.paused_until, engine.pulse_now)
+    saved_send, saved_check, saved_log = (engine.send, engine.check_for_a_break,
+                                          K.log)
+    saved_cfg = dict(K.CFG)
+    written = []
+    try:
+        K.log = written.append
+        K.CFG["active"] = True
+        K.CFG["interval_s"] = 3600      # nothing is due for an hour
+        engine.paused_until = 0.0
+        engine.pulse_now = False
+        engine.last_at = K.time.monotonic()
+        engine.error_items, engine.retries = [], 0
+
+        sent = []
+
+        def one_turn_then_stop(reason=""):
+            sent.append(reason)
+            engine.stop.set()
+            engine.wake.set()
+
+        engine.send = one_turn_then_stop
+        engine.woke_up = True
+        engine.stop.clear()
+        engine.run()
+        check("a wake-up pulses without waiting out the interval",
+              sent == [" (after a break)"], sent)
+
+        # and the flag has to be put down again, or it would pulse every
+        # second from then on
+        check("and the wake-up is not left standing", engine.woke_up is False,
+              engine.woke_up)
+
+        engine.send = saved_send
+
+        def explode():
+            engine.stop.set()           # one turn is enough
+            engine.wake.set()
+            raise RuntimeError("the device list exploded")
+
+        engine.check_for_a_break = explode
+        engine.error_items = []
+        engine.stop.clear()
+        engine.run()                    # must RETURN, not raise
+        check("an unexpected error does not end the engine in silence",
+              engine.state() == "error", engine.state())
+        check("and it says what actually happened",
+              "exploded" in (engine.error_text() or ""), engine.error_text())
+        check("and the log has it in English",
+              any("exploded" in line for line in written), str(written[-1:]))
+
+        # The same fault comes back every second. Reporting it every second
+        # would bury the log - roughly 43 000 lines a day - and rotation would
+        # then throw away the history that explains it.
+        written.clear()
+        engine.stop.clear()
+        engine.run()
+        check("but the same error is not written to the log again",
+              written == [], str(written))
+    finally:
+        engine.send, engine.check_for_a_break, K.log = (saved_send, saved_check,
+                                                        saved_log)
+        (engine.woke_up, engine.last_at, engine.retries, engine.error_items,
+         engine.paused_until, engine.pulse_now) = saved
+        engine.stop.clear()
+        engine.wake.clear()
+        K.CFG.clear()
+        K.CFG.update(saved_cfg)
 
 
 # ------------------------------------------------------------ settings file
@@ -613,6 +736,7 @@ def main():
                  test_devices, test_what_a_missing_device_reports,
                  test_retry_after_a_failed_pulse, test_a_sleep_is_noticed,
                  test_a_pause_runs_in_real_time,
+                 test_the_engine_loop_does_its_job,
                  test_config_encoding, test_problems, test_config_template,
                  test_texts):
         test()

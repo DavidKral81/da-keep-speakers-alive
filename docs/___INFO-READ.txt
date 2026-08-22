@@ -448,7 +448,7 @@ TESTS - RUN BEFORE EVERY RELEASE
       mouse wheel, closing twice)
 
   .venv\Scripts\python.exe tests\test_window.py --break-it
-      puts two real, previously-shipped bugs back in - the run
+      puts five real, previously-shipped bugs back in - the run
       MUST fail. A check nobody ever tried to break reads exactly
       like a check that does not work.
 

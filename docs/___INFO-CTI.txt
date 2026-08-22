@@ -431,7 +431,7 @@ TESTY — SPUSTIT PŘED KAŽDÝM VYDÁNÍM
       kolečko myši, dvojí zavření)
 
   .venv\Scripts\python.exe tests\test_window.py --break-it
-      znovu zavede dvě skutečné, dřív odeslané chyby — běh MUSÍ
+      znovu zavede pět skutečných, dřív odeslaných chyb — běh MUSÍ
       spadnout. Kontrola, kterou nikdo nezkusil rozbít, vypadá
       v protokolu stejně jako kontrola, která nefunguje.
 

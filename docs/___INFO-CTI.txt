@@ -148,9 +148,12 @@ JAK ČASTO POSÍLAT IMPULZ
     a po probuzení počítače — reproduktory mezitím usnuly
     a čekat na ně dalších třeba 15 minut nemá smysl.
     Když se impulz nepodaří přehrát (zařízení se po probuzení
-    ještě nestihlo přihlásit), zkusí se to znovu za 10, 20,
-    40 a pak po minutě — místo aby se čekal celý interval.
-    V řádku "Další impulz" je to vidět.
+    ještě nestihlo přihlásit), zkusí se to znovu za 10, 20, 40
+    a pak třikrát po minutě — teprve potom se čeká celý
+    interval, aby zařízení odpojené natrvalo neplnilo log
+    donekonečna. Když je nastavený interval kratší než ta
+    prodleva, platí vždycky ten interval. V řádku "Další
+    impulz" je to vidět.
 
 JAKÝ IMPULZ POSÍLAT
     Frekvence, hlasitost a délka — podrobně v oddílu 5.

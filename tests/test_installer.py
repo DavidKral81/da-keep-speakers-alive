@@ -72,6 +72,16 @@ def block_system_changes():
             # can be made to go both ways. Returning a flat "it worked" would
             # make ins_prob_task a check that can never go red - and a check
             # nobody can break is worse than no check at all.
+            if command.startswith("schtasks /Query") and "/XML" in command:
+                # What the scheduler would hand back. Enabled is left OUT when
+                # the task is enabled (schema default="true"), so the enabled
+                # answer must not contain the tag at all - writing "true" here
+                # would test a shape Windows never produces.
+                if not pretend_task_exists[0]:
+                    return False, ""
+                inside = ("<Enabled>false</Enabled>"
+                          if not pretend_task_enabled[0] else "")
+                return True, f"<Task><Settings>{inside}</Settings></Task>"
             if command.startswith("schtasks /Query"):
                 return pretend_task_exists[0], ""
             # The app's OWN exit code when it is asked to add or remove the
@@ -91,6 +101,10 @@ blocked = []
 pretend_task_exists = [False]
 # whether the app managed to switch the logon task on or off
 pretend_autostart_works = [True]
+# whether that registered task is actually ENABLED. A separate answer on
+# purpose: a task can exist, report a successful switch, and still be disabled
+# - which looks like a working installation and never starts the app.
+pretend_task_enabled = [True]
 
 
 def prepare():
@@ -201,6 +215,26 @@ try:
     # program, not some other copy.
     check("the app is the one asked to set the logon task", True,
           any("--autostart-off" in c and I.EXE_NAME in c for c in blocked))
+
+    # A task that exists but is DISABLED. Nothing else notices: it is
+    # registered, the switch reported success, and the app never starts at
+    # logon - the installation would end with a plain "Done." The install
+    # itself holds the task off while it copies, so a failure to switch it
+    # back lands exactly here.
+    pretend_task_exists[0], pretend_task_enabled[0] = True, False
+    try:
+        result = I.install(task=True, start_menu=False, desktop=False,
+                           report=report)
+        check("a registered but DISABLED task is not called success",
+              False, result)
+    finally:
+        pretend_task_enabled[0] = True
+    # ... and the same run passes once it is enabled, so the check above is
+    # answering the enabled state and not something else that broke.
+    result = I.install(task=True, start_menu=False, desktop=False,
+                       report=report)
+    check("and an enabled one goes through", True, result)
+    pretend_task_exists[0] = False
 
     print("\n2) REPEATED INSTALLATION (over an existing one)")
     result = I.install(task=False, start_menu=True, desktop=True,

@@ -264,6 +264,36 @@ def task_exists():
     return ok
 
 
+def task_enabled():
+    """Is the task not merely registered, but actually allowed to run?
+
+    A task that exists and is disabled is the fault nobody finds: the
+    installer says the app will start at logon, the switch in the window says
+    the same, and it never starts. task_exists() cannot tell the difference.
+
+    Asked in XML rather than in the readable listing, because schtasks
+    translates "Ready" and "Disabled" into the system language - matching on
+    those words works on an English Windows and quietly stops working
+    everywhere else. The tag does not change.
+
+    Absence means enabled: the schema gives Enabled default="true", and an
+    enabled task really does come back with no such element (checked against
+    the live task). Only an explicit false counts as disabled. A trigger
+    switched off is caught by the same test, and rightly so - the task then
+    exists, calls itself enabled, and still never starts at logon.
+
+    Goes through quiet() like everything else here. The tests replace quiet()
+    to keep their hands off the real scheduled task, and a private subprocess
+    call would slip straight past that. (The XML header claims UTF-16, but
+    down a pipe schtasks writes the console code page - so this looks for a
+    substring and must not be handed to an XML parser.)
+    """
+    ok, out = quiet(f'schtasks /Query /TN "{TASK_NAME}" /XML')
+    if not ok:
+        return False
+    return "<enabled>false</enabled>" not in out.lower()
+
+
 def set_task_enabled(enabled):
     """Switch the logon task on or off without deleting it.
 
@@ -570,6 +600,11 @@ def _install(task, start_menu, desktop, report, held=True):
     # been turned off - and the user has no way of noticing until it starts.
     if task_exists() != bool(task) or not switched:
         problems.append(tx("ins_prob_task" if task else "ins_prob_task_off"))
+    elif task and not task_enabled():
+        # Registered, the switch reported success, and still disabled - the
+        # installation holds it off while it copies (see install()), so a
+        # failure to switch it back lands exactly here.
+        problems.append(tx("ins_prob_task_disabled"))
 
     if problems:
         report(tx("ins_failed", what=", ".join(problems)))

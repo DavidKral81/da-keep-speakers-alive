@@ -224,6 +224,10 @@ CS = {
                                    "aplikace)",
     "ins_prob_task_off": "zrušení spouštění po přihlášení (aplikace se bude "
                          "dál spouštět sama)",
+    "ins_prob_task_disabled": "úloha pro spouštění po přihlášení sice vznikla, "
+                              "ale zůstala zakázaná, takže se nespustí — zapni "
+                              "ji v Plánovači úloh, nebo přepínač v okně "
+                              "aplikace vypni a zase zapni",
 
     # result window
     "ins_head_installed": "Nainstalováno",
@@ -417,6 +421,10 @@ EN = {
                                    "language in the app's window)",
     "ins_prob_task_off": "removing start at logon (the app will keep starting "
                          "on its own)",
+    "ins_prob_task_disabled": "the start-at-logon task was created but left "
+                              "disabled, so it will not run - enable it in "
+                              "Task Scheduler, or switch the option in the "
+                              "app's window off and on again",
 
     # result window
     "ins_head_installed": "Installed",

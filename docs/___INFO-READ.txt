@@ -152,11 +152,12 @@ HOW OFTEN TO SEND A PULSE
     has to be shorter than the time your speakers take to fall
     asleep. If they still do, shorten it.
 
-    Two things do not wait for the interval and get a pulse
-    right away: starting the app (so, logging in to Windows too)
-    and the computer waking up - the speakers fell asleep
-    meanwhile, and waiting another fifteen minutes for them
-    makes no sense. If the pulse cannot be played (the device
+    Three things do not wait for the interval and get a pulse
+    right away: starting the app (so, logging in to Windows
+    too), the computer waking up, and plugging in a speaker you
+    picked - they are asleep at all three moments, and waiting
+    another fifteen minutes for them makes no sense. A device
+    that has just been connected is noticed within 10 seconds. If the pulse cannot be played (the device
     has yet to come back after a wake-up), it is tried again
     after 10, 20, 40 seconds and then three more times a minute
     apart, before going back to the full interval - a device
@@ -263,10 +264,15 @@ YOU CAN HEAR THE TONE
     speakers cannot reproduce low tones anyway.
 
 IT CRACKLES
-    Lower the volume, or raise the frequency. A low tone played
+    The app keeps a 100 ms audio buffer of its own and waits for
+    the sound to drain before closing the stream. Left to Windows
+    the buffer comes out at about 20 ms, and a buffer that short
+    crackles all the way through the tone, whatever the volume and
+    whatever the frequency. That is why the app sets it itself.
+
+    If it still crackles, lower the volume: a low tone played
     loudly asks a small speaker for more cone excursion than it
-    has. At the default setting (20 Hz / 1 %) this does not
-    happen.
+    has.
 
 
 

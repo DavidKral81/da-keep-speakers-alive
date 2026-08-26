@@ -143,10 +143,12 @@ JAK ČASTO POSÍLAT IMPULZ
     kratší než doba, po které reproduktory usnou. Když přesto
     usínají, zkrať ho.
 
-    Ve dvou případech se interval nečeká a impulz jde hned:
-    po spuštění aplikace (tedy i po přihlášení do Windows)
-    a po probuzení počítače — reproduktory mezitím usnuly
-    a čekat na ně dalších třeba 15 minut nemá smysl.
+    Ve třech případech se interval nečeká a impulz jde hned:
+    po spuštění aplikace (tedy i po přihlášení do Windows),
+    po probuzení počítače a ve chvíli, kdy připojíš vybraný
+    reproduktor — reproduktory v těch chvílích spí a čekat
+    na ně dalších třeba 15 minut nemá smysl. Nově připojené
+    zařízení aplikace zpozoruje nejpozději do 10 sekund.
     Když se impulz nepodaří přehrát (zařízení se po probuzení
     ještě nestihlo přihlásit), zkusí se to znovu za 10, 20, 40
     a pak třikrát po minutě — teprve potom se čeká celý
@@ -249,10 +251,14 @@ SLYŠÍŠ TÓN
     tóny stejně nezahrají.
 
 PRASKÁ TO
-    Sniž hlasitost, případně zvyš frekvenci. Hluboký tón nahlas
-    chce po malém reproduktoru větší výchylku, než na jakou má
-    membránu. Při výchozím nastavení (20 Hz / 1 %) k tomu
-    nedochází.
+    Aplikace si sama drží zvukový buffer 100 ms a před zavřením
+    zvukového proudu počká, až zvuk dozní. Kdyby velikost bufferu
+    nechala na Windows, vyšlo by asi 20 ms — a tak krátký buffer
+    praská po celou dobu tónu, bez ohledu na hlasitost i frekvenci.
+    Proto si ji určuje sama.
+
+    Kdyby praskalo i tak, sniž hlasitost: hluboký tón nahlas chce
+    po malém reproduktoru větší výchylku, než na jakou má membránu.
 
 
 

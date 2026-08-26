@@ -373,6 +373,23 @@ def make_pulse(freq, amp_percent, duration, fade, samplerate):
     return wave.astype(np.float32)
 
 
+# How much sound to keep queued ahead of the device.
+#
+# Left to itself, PortAudio takes WASAPI's shared-mode default, which came out
+# at 22 ms here - and that is too little. The pulse crackled the whole way
+# through, at every frequency and every volume, while music through the same
+# speakers was clean; a device that cannot play a quiet 100 Hz tone would not
+# manage music at all, so the speakers were never the problem. Nor was the
+# signal: it is generated with the first and last sample at exactly zero, and
+# the largest step between two samples measures -91 dBFS.
+#
+# Measured by ear against a 4 s tone on the same output: 22 ms crackles,
+# 60 ms and up is clean. 100 ms is double the smallest clean size, to leave
+# room for a machine that is busier than it was during the test, and is still
+# nothing next to an interval counted in minutes.
+BUFFER_S = 0.1
+
+
 def play(device, wave):
     """Play one pulse on one device. Raises on failure - the caller logs it."""
     channels = device["channels"]
@@ -380,8 +397,18 @@ def play(device, wave):
     with AUDIO_LOCK:
         with sd.OutputStream(device=device["index"],
                              samplerate=device["samplerate"],
-                             channels=channels, dtype="float32") as stream:
+                             channels=channels, dtype="float32",
+                             latency=BUFFER_S) as stream:
             stream.write(data)
+            # write() returns once the sound is IN the buffer, not once it has
+            # been heard - up to stream.latency of it is still queued. Leaving
+            # the "with" here would close the stream on top of it and cut the
+            # pulse off mid-note, which is a click of its own: exactly what the
+            # fade in make_pulse() exists to avoid. The real figure is asked of
+            # the stream rather than assumed, because PortAudio hands out what
+            # the device allows, not what was requested (100 ms asked, 110 ms
+            # given on this machine).
+            time.sleep(stream.latency + 0.05)
 
 
 # ---------------------------------------------------------------- engine
@@ -403,6 +430,14 @@ class Engine(threading.Thread):
     # A gap this much bigger than the loop expected means the machine was
     # asleep rather than merely busy.
     BREAK_S = 60
+
+    # How often to look for a speaker that has just been plugged in. This one
+    # cannot run every second like the rest of the loop: seeing a new device
+    # means restarting PortAudio, measured at 64 ms on this machine (median of
+    # twelve runs), and doing that every second would be 6 % of a core spent
+    # on an app that is meant to be unnoticeable. Ten seconds is nothing next
+    # to an interval counted in minutes, and costs 0.6 %.
+    SCAN_S = 10
 
     def __init__(self):
         super().__init__(daemon=True)
@@ -439,6 +474,13 @@ class Engine(threading.Thread):
         self.clock_gap = time.time() - time.monotonic()
         self.playing_from = 0.0         # monotonic, 0 = nothing is playing now
         self.playing_span = 0.0         # how long the burst being played takes
+        # Which target devices were present the last time the list was read,
+        # by the same key targets() matches on. None means "never looked yet",
+        # which is not the same as "none were there": at start-up everything
+        # would count as newly plugged in, and the pulse start-up sends anyway
+        # would go out twice. The first scan only fills this in.
+        self.seen = None
+        self.scanned_at = 0.0           # monotonic, when the list was last read
 
     # --- what the window and the tray ask about ------------------------
 
@@ -520,6 +562,12 @@ class Engine(threading.Thread):
         """
         refresh_devices()
         chosen, missing = targets()
+        # The list has just been read, so the watch for newly plugged-in
+        # devices starts again from here. Without this, a device that arrived
+        # between two scans and got THIS pulse would still look new at the
+        # next scan and earn a second one.
+        self.seen = {_key(device["name"]) for device in chosen}
+        self.scanned_at = time.monotonic()
         # Kept as (key, arguments) rather than as finished sentences: the same
         # problem has to reach the window in the user's language and the log in
         # English, and rendering it twice from one list is the only way the two
@@ -612,6 +660,32 @@ class Engine(threading.Thread):
             # again - and the countdown along with it.
             self.last_at -= drift
 
+    def a_device_just_arrived(self):
+        """True when a chosen speaker has appeared since the last look.
+
+        Plugging the speakers into a machine that has been running for a while
+        used to buy silence for up to a whole interval - fifteen minutes at the
+        longest setting - and the speakers had been asleep the entire time the
+        machine was on without them. They are exactly the case the app exists
+        for, so they get the pulse the moment they turn up.
+
+        Only devices that ARRIVED count: one going away is the unplugging
+        itself, and a pulse cannot reach it anyway. Comparing by _key() means
+        the same speakers in a different USB port count as the same device,
+        which is what the rest of the app does too.
+
+        Costs a PortAudio restart, so it runs at most every SCAN_S - the loop
+        itself ticks once a second. Runs in the engine thread, like send().
+        """
+        now = time.monotonic()
+        if now - self.scanned_at < self.SCAN_S:
+            return False
+        self.scanned_at = now
+        refresh_devices()
+        here = {_key(device["name"]) for device in targets()[0]}
+        before, self.seen = self.seen, here
+        return before is not None and bool(here - before)
+
     def trouble(self, error):
         """Something in the loop threw. Show it - never let it end the thread.
 
@@ -652,6 +726,11 @@ class Engine(threading.Thread):
                     # switched off or paused - and a break noticed meanwhile is
                     # dropped rather than kept for whenever it is switched on
                     self.woke_up = False
+                    # The device scan is dropped for the same reason: speakers
+                    # plugged in while the app was off are not news worth a
+                    # pulse the second it comes back. Forgetting the list makes
+                    # the next scan fill it in silently.
+                    self.seen = None
                 elif self.woke_up or due <= 0:
                     # Being very late means the process was frozen - the
                     # machine was asleep. The speakers slept through it too,
@@ -662,6 +741,8 @@ class Engine(threading.Thread):
                     after_a_break = self.woke_up or late > 60
                     self.woke_up = False
                     self.send(" (after a break)" if after_a_break else "")
+                elif self.a_device_just_arrived():
+                    self.send(" (a device was connected)")
             except Exception as error:
                 # Deliberately everything: this is the last line before the
                 # thread dies, and a dead engine is invisible to the user.

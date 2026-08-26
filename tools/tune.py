@@ -146,10 +146,19 @@ def make_pulse(freq: float, amp_percent: float, duration: float,
     return wave.astype(np.float32)
 
 
+# Must stay the same as keep_alive.BUFFER_S, or this tool measures something
+# the app never plays - test_logic.py compares the two. WASAPI's own default
+# came out at 22 ms on the machine this was written for, and that crackled all
+# the way through the tone; 60 ms and up was clean. See keep_alive.py for the
+# full measurement.
+BUFFER_S = 0.1
+
+
 def play(mono: np.ndarray, samplerate: int, device: int, channels: int) -> None:
     data = np.column_stack([mono] * channels) if channels > 1 else mono
     try:
-        sd.play(data, samplerate=samplerate, device=device, blocking=True)
+        sd.play(data, samplerate=samplerate, device=device, blocking=True,
+                latency=BUFFER_S)
     except sd.PortAudioError as exc:
         raise SystemExit(f"Playback on device {device} failed: {exc}")
 

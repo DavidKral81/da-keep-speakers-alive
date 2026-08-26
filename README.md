@@ -50,7 +50,7 @@ to keep the speakers from switching off. The shipped default is the louder of
 the two, because headroom you cannot hear costs nothing.
 
 Everything is adjustable in the window: 5–100 Hz, 0.1–10 %, 0.1–2 s, every 30 s
-to 15 minutes. Two details are worth knowing before you turn the knobs:
+to 15 minutes. Three details are worth knowing before you turn the knobs:
 
 - **The edges are faded in and out.** Without that, the burst starts and ends
   on a step, and a step is broadband noise — a click you hear far better than
@@ -58,10 +58,13 @@ to 15 minutes. Two details are worth knowing before you turn the knobs:
 - **A burst shorter than two full waves is not a tone**, it is a DC step that
   the speaker's coupling capacitor eats. The window warns you when your
   combination of frequency and length falls under that line.
+- **The audio buffer is the app's own, 100 ms, drained before the stream is
+  closed.** Left to WASAPI's shared-mode default it came out at 22 ms, and a
+  buffer that short crackles the whole way through the pulse — at any volume
+  and any frequency, on hardware that plays music perfectly well.
 
-**If you can hear the pulse, or it crackles, lower the volume first** — then
-the frequency. Low tones at a high setting ask more of a small speaker than it
-can give.
+**If you can hear the pulse, lower the volume first** — then the frequency. Low
+tones at a high setting ask more of a small speaker than it can give.
 
 ---
 
@@ -92,8 +95,10 @@ It does not keep the computer awake, and it cannot wake it up. A running
 process has nothing to wake anything with: in hibernation it does not exist,
 and under Modern Standby Windows freezes it. After the machine wakes up, the
 pulse goes out straight away rather than at the end of the interval — the
-speakers slept through it too. The same at logon. And if the pulse cannot be
-played because the device has yet to come back, it is retried within seconds
+speakers slept through it too. The same at logon, and the same the moment you
+plug a chosen speaker in: connecting it to a machine that has been running for
+a while used to buy silence for up to a whole interval. And if the pulse cannot
+be played because the device has yet to come back, it is retried within seconds
 instead of one interval later.
 
 ---

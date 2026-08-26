@@ -16,10 +16,13 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "windows"))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "windows"))
+sys.path.insert(0, str(ROOT / "tools"))
 
 import keep_alive as K                                  # noqa: E402
 import texts                                            # noqa: E402
+import tune                                             # noqa: E402
 
 # Neither the log nor the settings belong to a test run. Run from source the
 # app keeps both next to the sources, so a test run wrote into the real log and
@@ -85,6 +88,18 @@ def test_pulse():
           reachable < 2, f"the shortest combination is {reachable:g} periods")
     check("the default setting is far from the warning",
           K.periods(K.DEFAULTS["freq_hz"], K.DEFAULTS["duration_s"]) >= 4)
+
+    # The buffer. Left to PortAudio it came out at 22 ms on WASAPI shared mode
+    # and crackled the whole way through every pulse, at any frequency and any
+    # volume, while music through the same speakers was clean. Measured by ear
+    # on a 4 s tone: 22 ms crackles, 60 ms and up is clean.
+    check("the buffer is well clear of the size that crackled",
+          K.BUFFER_S >= 0.06, f"{K.BUFFER_S} s")
+    # tune.py plays through sd.play() rather than an OutputStream, so it is a
+    # second copy of this number. A measuring tool quietly using a different
+    # buffer than the app would report on something the app never plays.
+    check("the measuring tool buffers exactly like the app",
+          tune.BUFFER_S == K.BUFFER_S, f"tune {tune.BUFFER_S} vs app {K.BUFFER_S}")
 
 
 # ------------------------------------------------------------ pulse bar
@@ -564,6 +579,147 @@ def test_the_engine_loop_does_its_job():
         K.CFG.update(saved_cfg)
 
 
+def test_a_speaker_plugged_in_gets_the_pulse_at_once():
+    """Plugging the speakers in has to pulse them, not start a wait.
+
+    The whole point: a machine that has been running for a while and only now
+    gets its speakers connected used to send nothing for up to a whole
+    interval, with the speakers asleep for all of it.
+
+    The device list is stood in for, so this never touches the real outputs -
+    and the last part runs the LOOP, because a scan that nothing calls would
+    pass every check made by hand and still never fire in the app.
+    """
+    print("a speaker plugged in gets the pulse at once")
+    engine = K.ENGINE
+    saved = (engine.seen, engine.scanned_at, engine.last_at, engine.woke_up,
+             engine.pulse_now, engine.paused_until, engine.retries,
+             list(engine.error_items))
+    saved_send, saved_refresh = engine.send, K.refresh_devices
+    saved_targets, saved_cfg = K.targets, dict(K.CFG)
+    here = []                       # what the stand-in currently "sees"
+
+    def fake_targets(devices=None):
+        return [{"name": name, "index": 0, "samplerate": 48000, "channels": 2}
+                for name in here], []
+
+    speakers = "Speakers (4 - USB Advanced Audio Device)"
+    headphones = "Headphones (RODE NT-USB+)"
+    try:
+        K.refresh_devices = lambda: True
+        K.targets = fake_targets
+        K.CFG["active"] = True
+        K.CFG["interval_s"] = 3600          # nothing is due for an hour
+        engine.paused_until = 0.0
+        engine.pulse_now = False
+        engine.woke_up = False
+        engine.error_items, engine.retries = [], 0
+        engine.last_at = K.time.monotonic()
+        engine.seen, engine.scanned_at = None, 0.0
+
+        here[:] = [headphones]
+        check("the first look only takes note, it never pulses",
+              engine.a_device_just_arrived() is False, engine.seen)
+
+        engine.scanned_at = 0.0             # let it look again
+        check("nothing new means no pulse",
+              engine.a_device_just_arrived() is False, engine.seen)
+
+        here[:] = [headphones, speakers]
+        check("a scan too soon is skipped, whatever changed",
+              engine.a_device_just_arrived() is False, engine.scanned_at)
+
+        engine.scanned_at = 0.0
+        check("a speaker that turned up asks for a pulse",
+              engine.a_device_just_arrived() is True, engine.seen)
+
+        engine.scanned_at = 0.0
+        here[:] = [headphones]
+        check("one going away does NOT pulse - it cannot be reached anyway",
+              engine.a_device_just_arrived() is False, engine.seen)
+
+        # Wired in, part one: the loop has to send it. Everything above would
+        # still pass with a_device_just_arrived() called from nowhere at all.
+        engine.scanned_at = 0.0
+        here[:] = [headphones, speakers]
+        sent = []
+
+        def one_turn_then_stop(reason=""):
+            sent.append(reason)
+
+        # The loop is stopped from check_for_a_break(), which every turn runs
+        # first, NOT from the stand-in send(). Hanging the exit on send() being
+        # called is how this test HANGS instead of failing when the pulse is
+        # the thing that broke - which is exactly the case it exists to catch.
+        saved_check_break = engine.check_for_a_break
+
+        def one_turn_only():
+            saved_check_break()
+            engine.stop.set()
+            engine.wake.set()
+
+        engine.check_for_a_break = one_turn_only
+        engine.send = one_turn_then_stop
+        engine.stop.clear()
+        engine.run()
+        engine.check_for_a_break = saved_check_break
+        check("and the loop is the one that sends it",
+              sent == [" (a device was connected)"], sent)
+
+        # Wired in, part two: the REAL send() re-reads the list itself, so it
+        # has to leave the watch up to date. Otherwise a device that arrived
+        # between two scans and got this very pulse still looks new at the
+        # next scan and earns a second one.
+        engine.send = saved_send
+        saved_play, played = K.play, []
+        K.play = lambda device, wave: played.append(device["name"])
+        try:
+            engine.seen = {K._key(headphones)}
+            engine.scanned_at = 0.0
+            here[:] = [headphones, speakers]
+            engine.send(" (test)")
+            check("a real pulse reached both stand-in devices",
+                  played == [headphones, speakers], played)
+            after = set(engine.seen or ())
+            check("and the watch knows about them already, so no second pulse",
+                  after == {K._key(headphones), K._key(speakers)}, sorted(after))
+            engine.scanned_at = 0.0
+            check("proved: the very next scan finds nothing new",
+                  engine.a_device_just_arrived() is False, engine.seen)
+        finally:
+            K.play = saved_play
+        engine.error_items, engine.retries = [], 0
+
+        # Switched off or paused: what was plugged in meanwhile is not news
+        # worth a pulse the second it comes back.
+        engine.stop.clear()
+        K.CFG["active"] = False
+        engine.send = one_turn_then_stop
+        sent.clear()
+
+        def stop_after_one():
+            engine.stop.set()
+            engine.wake.set()
+
+        saved_check_break = engine.check_for_a_break
+        engine.check_for_a_break = stop_after_one
+        engine.run()
+        engine.check_for_a_break = saved_check_break
+        check("switched off, the loop sends nothing", sent == [], sent)
+        check("and it forgets the list instead of hoarding it",
+              engine.seen is None, engine.seen)
+    finally:
+        engine.send, K.refresh_devices = saved_send, saved_refresh
+        K.targets = saved_targets
+        (engine.seen, engine.scanned_at, engine.last_at, engine.woke_up,
+         engine.pulse_now, engine.paused_until, engine.retries,
+         engine.error_items) = saved
+        engine.stop.clear()
+        engine.wake.clear()
+        K.CFG.clear()
+        K.CFG.update(saved_cfg)
+
+
 # ------------------------------------------------------------ settings file
 
 RUNTIME_ONLY = {"window_geometry"}      # the app writes these for itself
@@ -737,6 +893,7 @@ def main():
                  test_retry_after_a_failed_pulse, test_a_sleep_is_noticed,
                  test_a_pause_runs_in_real_time,
                  test_the_engine_loop_does_its_job,
+                 test_a_speaker_plugged_in_gets_the_pulse_at_once,
                  test_config_encoding, test_problems, test_config_template,
                  test_texts):
         test()

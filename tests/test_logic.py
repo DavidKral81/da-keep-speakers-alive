@@ -275,6 +275,8 @@ def test_what_a_missing_device_reports():
 
         check("nothing played, so this is a real failure",
               engine.state() == "error", engine.state())
+        check("and the log does not claim anything went out",
+              "->" not in written[-1], written[-1])
 
         # The reported case: the default device DID get the pulse, one saved
         # device did not - and the window announced "the last pulse could not
@@ -289,6 +291,17 @@ def test_what_a_missing_device_reports():
               engine.state() == "partial", engine.state())
         check("and the reason is still there to read",
               "není připojené" in error, error)
+
+        # The log was the last output still calling this a total failure. In
+        # the real log of 27.08.2026 it produced twenty lines that read like
+        # twenty dead pulses, while the pulse was in fact going out to the
+        # default device the whole time - and the log is what a bug report is
+        # built from.
+        check("the log names what DID play, not only what did not",
+              "-> Works" in written[-1], written[-1])
+        check("and names the trouble on the same line",
+              "problems:" in written[-1] and "is not connected" in written[-1],
+              written[-1])
 
         # The reason has to FOLLOW the flag, not stay in the language it was
         # built in. It used to be glued into a sentence the moment the pulse

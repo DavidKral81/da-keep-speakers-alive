@@ -834,13 +834,25 @@ class Engine(threading.Thread):
             # Set next to error_items on purpose: gap() reads both, and the
             # two drifting apart would either retry for ever or not at all.
             self.retries = self.retries + 1 if problems else 0
-            if problems:
-                in_english = "; ".join(tx_en(key, **kw) for key, kw in problems)
-                log(f"Pulse{reason}: {in_english}")
+            # Three outcomes, not two. "Some of them played" used to be logged
+            # as though nothing had - twenty lines that read like twenty
+            # failures, about pulses that were going out the whole time. The
+            # window, the bar and the tray icon had all learned to tell a
+            # partial failure from a total one; the log was the one output left
+            # behind, because it was the one nobody was looking at.
+            #
+            # Driven by self.partly, the same flag the other three read, so
+            # there is one answer to "did anything play" rather than four.
+            settings = (f"({CFG.get('freq_hz')} Hz, {CFG.get('amp_percent')} %, "
+                        f"{duration} s)")
+            trouble = "; ".join(tx_en(key, **kw) for key, kw in problems)
+            if self.partly:
+                log(f"Pulse{reason} -> {', '.join(played)} {settings}"
+                    f" | problems: {trouble}")
+            elif problems:
+                log(f"Pulse{reason}: {trouble}")
             else:
-                log(f"Pulse{reason} -> {', '.join(played)} "
-                    f"({CFG.get('freq_hz')} Hz, {CFG.get('amp_percent')} %, "
-                    f"{duration} s)")
+                log(f"Pulse{reason} -> {', '.join(played)} {settings}")
         finally:
             # Cleared only here, with the record of the pulse already complete:
             # the bar asks error_text() the moment it stops moving, and would

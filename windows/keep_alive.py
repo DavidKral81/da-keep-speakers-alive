@@ -357,6 +357,210 @@ def targets(devices=None):
     return chosen, missing
 
 
+# ------------------------------------------------ what Windows has silenced
+#
+# PortAudio knows nothing about the mute switch: a muted output stays in its
+# list under the same name, with the same channels, and accepts the pulse
+# without a murmur - while the speakers sleep through it exactly as if nothing
+# had been sent. Un-muting is therefore the same moment as plugging in, and
+# deserves the same pulse.
+#
+# The switch lives in Windows Core Audio, so reading it means calling COM by
+# hand. That is the hundred lines below, and it buys not having to put pycaw
+# and comtypes into the installer for two flags.
+#
+# Volume at zero counts as silenced as well: it stops the pulse just as
+# completely, and someone sliding it back up expects what un-muting gives.
+#
+# Measured here: one full look - every active output, its name, its mute flag
+# and its level - takes 4.6 ms (median of 20, max 7.2). It rides along with
+# the device scan, which costs 64 ms on its own, so it adds about 7 % to
+# something that already runs once every SCAN_S. Names are only read for
+# outputs that turn out to be silent, so the usual look is cheaper still.
+
+_ole32 = ctypes.windll.ole32
+
+_S_OK = 0
+_S_FALSE = 1
+_CLSCTX_ALL = 23
+_COINIT_MULTITHREADED = 0
+_E_RENDER = 0                       # EDataFlow: outputs, not microphones
+_DEVICE_STATE_ACTIVE = 0x1
+_STGM_READ = 0
+_VT_LPWSTR = 31
+
+
+class _GUID(ctypes.Structure):
+    _fields_ = [("Data1", wintypes.DWORD), ("Data2", wintypes.WORD),
+                ("Data3", wintypes.WORD), ("Data4", ctypes.c_byte * 8)]
+
+
+class _PROPERTYKEY(ctypes.Structure):
+    _fields_ = [("fmtid", _GUID), ("pid", wintypes.DWORD)]
+
+
+class _PROPVARIANT(ctypes.Structure):
+    # vt and three reserved WORDs fill the first eight bytes; the union with
+    # the string pointer starts after them.
+    _fields_ = [("vt", wintypes.WORD), ("r1", wintypes.WORD),
+                ("r2", wintypes.WORD), ("r3", wintypes.WORD),
+                ("pwsz", ctypes.c_void_p), ("_rest", ctypes.c_void_p)]
+
+
+def _guid(text):
+    value = _GUID()
+    if _ole32.CLSIDFromString(ctypes.c_wchar_p(text), ctypes.byref(value)):
+        raise OSError(f"not a GUID: {text}")
+    return value
+
+
+_CLSID_ENUMERATOR = _guid("{BCDE0395-E52F-467C-8E3D-C4579291692E}")
+_IID_ENUMERATOR = _guid("{A95664D2-9614-4F35-A746-DE8DB63617E6}")
+_IID_VOLUME = _guid("{5CDF2C82-841E-4546-9722-0CF74078229A}")
+_PKEY_FRIENDLY_NAME = _PROPERTYKEY(
+    _guid("{A45C254E-DF1C-4EFD-8020-67D146A850E0}"), 14)
+
+_mute_problem = None                # the last failure, so the log gets it once
+
+
+def _slot(iface, index, restype, argtypes):
+    """The function at vtable entry `index` of a raw COM interface pointer."""
+    vtable = ctypes.cast(
+        iface, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
+    return ctypes.WINFUNCTYPE(restype, ctypes.c_void_p, *argtypes)(vtable[index])
+
+
+def _com(iface, index, argtypes, *args):
+    """Call a COM method that answers with an HRESULT. Raises when it fails.
+
+    Never silenced: a failed call means the mute state is unknown, and the one
+    thing that must not happen is answering "not muted" to a question that was
+    never really asked - see muted_devices().
+    """
+    result = _slot(iface, index, ctypes.HRESULT, argtypes)(iface, *args)
+    if result != _S_OK:
+        raise OSError(f"Core Audio call {index}: 0x{result & 0xFFFFFFFF:08x}")
+
+
+def _release(iface):
+    _slot(iface, 2, ctypes.c_ulong, ())(iface)
+
+
+def _friendly_name(device):
+    """The endpoint name, the one Windows shows in the volume flyout."""
+    store = ctypes.c_void_p()
+    _com(device, 4, (wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p)),
+         _STGM_READ, ctypes.byref(store))            # OpenPropertyStore
+    try:
+        value = _PROPVARIANT()
+        _com(store, 5, (ctypes.POINTER(_PROPERTYKEY),
+                        ctypes.POINTER(_PROPVARIANT)),
+             ctypes.byref(_PKEY_FRIENDLY_NAME), ctypes.byref(value))  # GetValue
+        try:
+            if value.vt != _VT_LPWSTR or not value.pwsz:
+                raise OSError("an endpoint without a name")
+            return ctypes.wstring_at(value.pwsz)
+        finally:
+            _ole32.PropVariantClear(ctypes.byref(value))
+    finally:
+        _release(store)
+
+
+def _is_silent(device):
+    """True when this output is muted, or turned all the way down."""
+    volume = ctypes.c_void_p()
+    _com(device, 3, (ctypes.POINTER(_GUID), wintypes.DWORD, ctypes.c_void_p,
+                     ctypes.POINTER(ctypes.c_void_p)),
+         ctypes.byref(_IID_VOLUME), _CLSCTX_ALL, None,
+         ctypes.byref(volume))                       # Activate
+    try:
+        muted = wintypes.BOOL()
+        _com(volume, 15, (ctypes.POINTER(wintypes.BOOL),),
+             ctypes.byref(muted))                    # GetMute
+        if muted.value:
+            return True
+        level = ctypes.c_float()
+        _com(volume, 9, (ctypes.POINTER(ctypes.c_float),),
+             ctypes.byref(level))                    # GetMasterVolumeLevelScalar
+        return level.value <= 0.0
+    finally:
+        _release(volume)
+
+
+def _read_silenced():
+    """Ask Core Audio which active outputs are silent. Raises on any failure."""
+    enumerator = ctypes.c_void_p()
+    result = _ole32.CoCreateInstance(
+        ctypes.byref(_CLSID_ENUMERATOR), None, _CLSCTX_ALL,
+        ctypes.byref(_IID_ENUMERATOR), ctypes.byref(enumerator))
+    if result != _S_OK:
+        raise OSError(f"no device enumerator: 0x{result & 0xFFFFFFFF:08x}")
+    try:
+        collection = ctypes.c_void_p()
+        _com(enumerator, 3, (ctypes.c_int, wintypes.DWORD,
+                             ctypes.POINTER(ctypes.c_void_p)),
+             _E_RENDER, _DEVICE_STATE_ACTIVE,
+             ctypes.byref(collection))               # EnumAudioEndpoints
+        try:
+            count = wintypes.UINT()
+            _com(collection, 3, (ctypes.POINTER(wintypes.UINT),),
+                 ctypes.byref(count))                # GetCount
+            silent = set()
+            for position in range(count.value):
+                device = ctypes.c_void_p()
+                _com(collection, 4, (wintypes.UINT,
+                                     ctypes.POINTER(ctypes.c_void_p)),
+                     position, ctypes.byref(device))  # Item
+                try:
+                    if _is_silent(device):
+                        silent.add(_key(_friendly_name(device)))
+                finally:
+                    _release(device)
+            return silent
+        finally:
+            _release(collection)
+    finally:
+        _release(enumerator)
+
+
+def muted_devices():
+    """Keys of the outputs Windows is silencing, or None when it could not tell.
+
+    None is NOT an empty set, and the difference is the whole point. A failed
+    read that answered "nothing is muted" would look exactly like every muted
+    device being un-muted at once, and would fire a pulse at each of them the
+    moment reading started working again.
+
+    The keys come out of _key(), the same reduction the rest of the app pairs
+    device names by. Measured here, Core Audio and PortAudio hand out the very
+    same string for all four outputs, so the pairing is a formality - but the
+    port number Windows writes into the name is not, and _key() drops it.
+    """
+    global _mute_problem
+    started = _ole32.CoInitializeEx(None, _COINIT_MULTITHREADED)
+    # RPC_E_CHANGED_MODE says this thread already lives in a different
+    # apartment. COM works either way; it only must not be uninitialised here,
+    # because this thread is not the one that set it up.
+    ours = started in (_S_OK, _S_FALSE)
+    try:
+        silent = _read_silenced()
+        _mute_problem = None        # back in working order; log the next fault
+        return silent
+    except Exception as error:      # any COM failure at all
+        # Not silenced, and not repeated either: this runs every SCAN_S, so a
+        # fault that stays would write a line every ten seconds. Only a message
+        # that CHANGED is logged, compared as text - two exceptions with the
+        # same wording are still different objects.
+        text = f"{type(error).__name__}: {error}"
+        if text != _mute_problem:
+            log(f"Could not read the mute state: {text}")
+            _mute_problem = text
+        return None
+    finally:
+        if ours:
+            _ole32.CoUninitialize()
+
+
 def periods(freq, duration):
     return duration * float(freq)
 
@@ -488,6 +692,11 @@ class Engine(threading.Thread):
         # would count as newly plugged in, and the pulse start-up sends anyway
         # would go out twice. The first scan only fills this in.
         self.seen = None
+        # Which of those devices Windows was silencing - muted, or turned all
+        # the way down. None means the same as above: never looked, or Core
+        # Audio would not say. Either way the next look only fills it in, so a
+        # device that was muted all along does not earn a pulse for it.
+        self.muted = None
         self.scanned_at = 0.0           # monotonic, when the list was last read
 
     # --- what the window and the tray ask about ------------------------
@@ -575,6 +784,11 @@ class Engine(threading.Thread):
         # between two scans and got THIS pulse would still look new at the
         # next scan and earn a second one.
         self.seen = {_key(device["name"]) for device in chosen}
+        # The mute watch is brought up to date for exactly the same reason: a
+        # device un-muted between two scans got THIS pulse, and would still
+        # look newly audible at the next scan and earn a second one.
+        silenced = muted_devices()
+        self.muted = None if silenced is None else self.seen & silenced
         self.scanned_at = time.monotonic()
         # Kept as (key, arguments) rather than as finished sentences: the same
         # problem has to reach the window in the user's language and the log in
@@ -672,31 +886,55 @@ class Engine(threading.Thread):
             # again - and the countdown along with it.
             self.last_at -= drift
 
-    def a_device_just_arrived(self):
-        """True when a chosen speaker has appeared since the last look.
+    def a_device_needs_a_pulse(self):
+        """Why a chosen speaker should be pulsed right now, or None.
 
-        Plugging the speakers into a machine that has been running for a while
-        used to buy silence for up to a whole interval - fifteen minutes at the
-        longest setting - and the speakers had been asleep the entire time the
-        machine was on without them. They are exactly the case the app exists
-        for, so they get the pulse the moment they turn up.
+        Two things make one reachable again without any pulse being due, and
+        both leave it asleep until the next one:
 
-        Only devices that ARRIVED count: one going away is the unplugging
-        itself, and a pulse cannot reach it anyway. Comparing by _key() means
-        the same speakers in a different USB port count as the same device,
-        which is what the rest of the app does too.
+        - it gets plugged in. On a machine that has been running for a while
+          that used to buy silence for up to a whole interval - fifteen minutes
+          at the longest setting - with the speakers asleep for the entire time
+          the machine was on without them.
+        - Windows stops silencing it. A muted output takes the pulse and plays
+          nothing, so the speakers fall asleep behind a mute exactly as they
+          would with the app switched off. Volume back off zero counts too.
+
+        Only what became REACHABLE counts. A device going away is the
+        unplugging itself and cannot be reached anyway; a device being muted
+        is nothing to send to either.
+
+        Both answers are worked out before either is acted on, so the one that
+        does not fire still leaves its watch up to date - otherwise a speaker
+        that arrived un-muted would pulse for arriving, and then a second time
+        at the next scan for being audible.
 
         Costs a PortAudio restart, so it runs at most every SCAN_S - the loop
         itself ticks once a second. Runs in the engine thread, like send().
+        The text it returns goes into the log, which is English whatever the
+        window speaks.
         """
         now = time.monotonic()
         if now - self.scanned_at < self.SCAN_S:
-            return False
+            return None
         self.scanned_at = now
         refresh_devices()
         here = {_key(device["name"]) for device in targets()[0]}
-        before, self.seen = self.seen, here
-        return before is not None and bool(here - before)
+        silenced = muted_devices()
+        quiet = None if silenced is None else here & silenced
+        arrived, self.seen = self.seen, here
+        was_quiet, self.muted = self.muted, quiet
+        if arrived is not None and here - arrived:
+            # Not "a device was connected": the set also grows when the user
+            # ticks a speaker that was plugged in all along. The pulse is right
+            # either way - that speaker is not being kept awake yet - but the
+            # log is the only record of what really happened, and a line
+            # blaming a USB event that never took place sends the next
+            # investigation the wrong way.
+            return " (a new device to keep awake)"
+        if was_quiet and quiet is not None and was_quiet - quiet:
+            return " (a device is audible again)"
+        return None
 
     def trouble(self, error):
         """Something in the loop threw. Show it - never let it end the thread.
@@ -739,10 +977,11 @@ class Engine(threading.Thread):
                     # dropped rather than kept for whenever it is switched on
                     self.woke_up = False
                     # The device scan is dropped for the same reason: speakers
-                    # plugged in while the app was off are not news worth a
-                    # pulse the second it comes back. Forgetting the list makes
-                    # the next scan fill it in silently.
+                    # plugged in - or un-muted - while the app was off are not
+                    # news worth a pulse the second it comes back. Forgetting
+                    # both lists makes the next scan fill them in silently.
                     self.seen = None
+                    self.muted = None
                 elif self.woke_up or due <= 0:
                     # Being very late means the process was frozen - the
                     # machine was asleep. The speakers slept through it too,
@@ -753,15 +992,8 @@ class Engine(threading.Thread):
                     after_a_break = self.woke_up or late > 60
                     self.woke_up = False
                     self.send(" (after a break)" if after_a_break else "")
-                elif self.a_device_just_arrived():
-                    # Not "a device was connected": the set also grows when the
-                    # user ticks a speaker that was plugged in all along. The
-                    # pulse is right either way - that speaker is not being
-                    # kept awake yet - but the log is the only record of what
-                    # really happened, and a line blaming a USB event that
-                    # never took place sends the next investigation the wrong
-                    # way.
-                    self.send(" (a new device to keep awake)")
+                elif (reason := self.a_device_needs_a_pulse()):
+                    self.send(reason)
             except Exception as error:
                 # Deliberately everything: this is the last line before the
                 # thread dies, and a dead engine is invisible to the user.

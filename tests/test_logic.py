@@ -589,34 +589,45 @@ def test_the_engine_loop_does_its_job():
 
 
 def test_a_speaker_plugged_in_gets_the_pulse_at_once():
-    """Plugging the speakers in has to pulse them, not start a wait.
+    """A speaker that becomes reachable has to be pulsed, not made to wait.
 
-    The whole point: a machine that has been running for a while and only now
-    gets its speakers connected used to send nothing for up to a whole
-    interval, with the speakers asleep for all of it.
+    Two ways that happens, and the same problem behind both: a machine that has
+    been running for a while and only now gets its speakers connected used to
+    send nothing for up to a whole interval, with the speakers asleep for all
+    of it - and a speaker that is muted takes the pulse and plays nothing, so
+    un-muting leaves it asleep in exactly the same way.
 
-    The device list is stood in for, so this never touches the real outputs -
-    and the last part runs the LOOP, because a scan that nothing calls would
-    pass every check made by hand and still never fire in the app.
+    The device list and the mute state are both stood in for, so this never
+    touches the real outputs - and the last part runs the LOOP, because a scan
+    that nothing calls would pass every check made by hand and still never fire
+    in the app.
     """
-    print("a speaker plugged in gets the pulse at once")
+    print("a speaker plugged in - or un-muted - gets the pulse at once")
     engine = K.ENGINE
-    saved = (engine.seen, engine.scanned_at, engine.last_at, engine.woke_up,
-             engine.pulse_now, engine.paused_until, engine.retries,
-             list(engine.error_items))
+    saved = (engine.seen, engine.muted, engine.scanned_at, engine.last_at,
+             engine.woke_up, engine.pulse_now, engine.paused_until,
+             engine.retries, list(engine.error_items))
     saved_send, saved_refresh = engine.send, K.refresh_devices
     saved_targets, saved_cfg = K.targets, dict(K.CFG)
+    saved_muted = K.muted_devices
     here = []                       # what the stand-in currently "sees"
+    silent = []                     # ... and which of those are silenced
 
     def fake_targets(devices=None):
         return [{"name": name, "index": 0, "samplerate": 48000, "channels": 2}
                 for name in here], []
 
+    def fake_muted():
+        # None is Core Audio refusing to answer, which is NOT "nothing muted".
+        return None if silent is None else {K._key(n) for n in silent}
+
     speakers = "Speakers (4 - USB Advanced Audio Device)"
     headphones = "Headphones (RODE NT-USB+)"
+    monitor = "2 - XG27ACS (AMD High Definition Audio Device)"
     try:
         K.refresh_devices = lambda: True
         K.targets = fake_targets
+        K.muted_devices = fake_muted
         K.CFG["active"] = True
         K.CFG["interval_s"] = 3600          # nothing is due for an hour
         engine.paused_until = 0.0
@@ -624,32 +635,113 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
         engine.woke_up = False
         engine.error_items, engine.retries = [], 0
         engine.last_at = K.time.monotonic()
-        engine.seen, engine.scanned_at = None, 0.0
+        engine.seen, engine.muted, engine.scanned_at = None, None, 0.0
 
         here[:] = [headphones]
         check("the first look only takes note, it never pulses",
-              engine.a_device_just_arrived() is False, engine.seen)
+              engine.a_device_needs_a_pulse() is None, engine.seen)
 
         engine.scanned_at = 0.0             # let it look again
         check("nothing new means no pulse",
-              engine.a_device_just_arrived() is False, engine.seen)
+              engine.a_device_needs_a_pulse() is None, engine.seen)
 
         here[:] = [headphones, speakers]
         check("a scan too soon is skipped, whatever changed",
-              engine.a_device_just_arrived() is False, engine.scanned_at)
+              engine.a_device_needs_a_pulse() is None, engine.scanned_at)
 
         engine.scanned_at = 0.0
         check("a speaker that turned up asks for a pulse",
-              engine.a_device_just_arrived() is True, engine.seen)
+              engine.a_device_needs_a_pulse() == " (a new device to keep awake)",
+              engine.seen)
 
         engine.scanned_at = 0.0
         here[:] = [headphones]
         check("one going away does NOT pulse - it cannot be reached anyway",
-              engine.a_device_just_arrived() is False, engine.seen)
+              engine.a_device_needs_a_pulse() is None, engine.seen)
+
+        # --- the same thing, done with the mute switch --------------------
+        engine.scanned_at = 0.0
+        here[:] = [headphones, speakers]
+        silent = [speakers]
+        check("arriving muted still counts as arriving",
+              engine.a_device_needs_a_pulse() == " (a new device to keep awake)",
+              engine.seen)
+
+        engine.scanned_at = 0.0
+        check("a device that stays muted does not pulse over and over",
+              engine.a_device_needs_a_pulse() is None, sorted(engine.muted))
+
+        engine.scanned_at = 0.0
+        silent = []
+        check("un-muting one asks for a pulse",
+              engine.a_device_needs_a_pulse() == " (a device is audible again)",
+              sorted(engine.muted))
+
+        engine.scanned_at = 0.0
+        check("and only once - the watch was brought up to date",
+              engine.a_device_needs_a_pulse() is None, sorted(engine.muted))
+
+        engine.scanned_at = 0.0
+        silent = [speakers]
+        check("muting one is not a reason to pulse either",
+              engine.a_device_needs_a_pulse() is None, sorted(engine.muted))
+
+        # The trap: both things happening in the SAME scan - something arrives
+        # while something else is un-muted. Only one pulse goes out, so the
+        # answer that did NOT fire must still leave its watch up to date, or
+        # the next scan finds the un-mute still pending and sends a second one.
+        #
+        # It has to be two different devices. One device arriving un-muted
+        # cannot show this: a device that is not in the list cannot be in the
+        # muted set either (the set is intersected with what is present), so
+        # there is nothing stale left behind to fire later. A check built that
+        # way passes whether the code updates the watch or not.
+        engine.scanned_at = 0.0
+        here[:] = [headphones, speakers]
+        silent = [speakers]
+        engine.a_device_needs_a_pulse()      # known: speakers here and muted
+        engine.scanned_at = 0.0
+        here[:] = [headphones, speakers, monitor]
+        silent = []                          # monitor arrives, speakers wake up
+        check("arrival wins when both happen at once",
+              engine.a_device_needs_a_pulse() == " (a new device to keep awake)",
+              engine.seen)
+        engine.scanned_at = 0.0
+        check("and the un-mute does NOT fire a second pulse afterwards",
+              engine.a_device_needs_a_pulse() is None, sorted(engine.muted))
+        here[:] = [headphones, speakers]
+
+        # Someone else's speakers being muted is none of our business: only
+        # devices the user picked are compared, so the sets stay small and a
+        # mute on an untouched output cannot pulse anything.
+        engine.scanned_at = 0.0
+        silent = ["Monitor (AMD High Definition Audio Device)"]
+        check("a device we do not keep awake is ignored, muted or not",
+              engine.a_device_needs_a_pulse() is None, sorted(engine.muted))
+
+        # Core Audio not answering must not look like "nothing is muted".
+        engine.scanned_at = 0.0
+        silent = [speakers]
+        engine.a_device_needs_a_pulse()      # the speakers are known muted now
+        engine.scanned_at = 0.0
+        silent = None                        # ... and now the read fails
+        check("a failed read does not pulse, and admits it knows nothing",
+              engine.a_device_needs_a_pulse() is None and engine.muted is None,
+              engine.muted)
+        engine.scanned_at = 0.0
+        silent = [speakers]                  # working again, still muted
+        check("the look after it only fills in, it does not pulse",
+              engine.a_device_needs_a_pulse() is None, sorted(engine.muted))
+        engine.scanned_at = 0.0
+        silent = []
+        check("proved: un-muting after that failure does pulse",
+              engine.a_device_needs_a_pulse() == " (a device is audible again)",
+              sorted(engine.muted))
 
         # Wired in, part one: the loop has to send it. Everything above would
-        # still pass with a_device_just_arrived() called from nowhere at all.
+        # still pass with a_device_needs_a_pulse() called from nowhere at all.
         engine.scanned_at = 0.0
+        engine.seen, engine.muted = {K._key(headphones)}, set()
         here[:] = [headphones, speakers]
         sent = []
 
@@ -675,26 +767,45 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
         check("and the loop is the one that sends it",
               sent == [" (a new device to keep awake)"], sent)
 
+        # The same wiring for the other reason: nothing arrives, a device is
+        # merely un-muted, and the loop still has to be the one that sends it.
+        engine.scanned_at = 0.0
+        engine.seen = {K._key(headphones), K._key(speakers)}
+        engine.muted = {K._key(speakers)}
+        silent = []
+        sent.clear()
+        engine.check_for_a_break = one_turn_only
+        engine.send = one_turn_then_stop
+        engine.stop.clear()
+        engine.run()
+        engine.check_for_a_break = saved_check_break
+        check("and the loop sends the un-mute pulse too",
+              sent == [" (a device is audible again)"], sent)
+
         # Wired in, part two: the REAL send() re-reads the list itself, so it
-        # has to leave the watch up to date. Otherwise a device that arrived
-        # between two scans and got this very pulse still looks new at the
-        # next scan and earns a second one.
+        # has to leave BOTH watches up to date. Otherwise a device that arrived
+        # - or was un-muted - between two scans and got this very pulse still
+        # looks new at the next scan and earns a second one.
         engine.send = saved_send
         saved_play, played = K.play, []
         K.play = lambda device, wave: played.append(device["name"])
         try:
             engine.seen = {K._key(headphones)}
+            engine.muted = {K._key(speakers)}
             engine.scanned_at = 0.0
             here[:] = [headphones, speakers]
+            silent = []
             engine.send(" (test)")
             check("a real pulse reached both stand-in devices",
                   played == [headphones, speakers], played)
             after = set(engine.seen or ())
             check("and the watch knows about them already, so no second pulse",
                   after == {K._key(headphones), K._key(speakers)}, sorted(after))
+            check("and the mute watch was brought up to date as well",
+                  engine.muted == set(), engine.muted)
             engine.scanned_at = 0.0
             check("proved: the very next scan finds nothing new",
-                  engine.a_device_just_arrived() is False, engine.seen)
+                  engine.a_device_needs_a_pulse() is None, engine.seen)
         finally:
             K.play = saved_play
         engine.error_items, engine.retries = [], 0
@@ -717,11 +828,13 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
         check("switched off, the loop sends nothing", sent == [], sent)
         check("and it forgets the list instead of hoarding it",
               engine.seen is None, engine.seen)
+        check("the mute watch is forgotten too, for the same reason",
+              engine.muted is None, engine.muted)
     finally:
         engine.send, K.refresh_devices = saved_send, saved_refresh
-        K.targets = saved_targets
-        (engine.seen, engine.scanned_at, engine.last_at, engine.woke_up,
-         engine.pulse_now, engine.paused_until, engine.retries,
+        K.targets, K.muted_devices = saved_targets, saved_muted
+        (engine.seen, engine.muted, engine.scanned_at, engine.last_at,
+         engine.woke_up, engine.pulse_now, engine.paused_until, engine.retries,
          engine.error_items) = saved
         engine.stop.clear()
         engine.wake.clear()

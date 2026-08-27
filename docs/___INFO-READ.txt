@@ -152,12 +152,16 @@ HOW OFTEN TO SEND A PULSE
     has to be shorter than the time your speakers take to fall
     asleep. If they still do, shorten it.
 
-    Three things do not wait for the interval and get a pulse
+    Four things do not wait for the interval and get a pulse
     right away: starting the app (so, logging in to Windows
-    too), the computer waking up, and plugging in a speaker you
-    picked - they are asleep at all three moments, and waiting
-    another fifteen minutes for them makes no sense. A device
-    that has just been connected is noticed within 10 seconds.
+    too), the computer waking up, plugging in a speaker you
+    picked, and un-muting one in Windows (volume back off zero
+    counts as well) - they are asleep at all four moments, and
+    waiting another fifteen minutes for them makes no sense. A
+    muted output accepts the pulse and plays nothing, so it
+    falls asleep exactly as it would with the app switched off.
+    A device that has just been connected or un-muted is
+    noticed within 10 seconds.
     If the pulse cannot be played (the device
     has yet to come back after a wake-up), it is tried again
     after 10, 20, 40 seconds and then three more times a minute

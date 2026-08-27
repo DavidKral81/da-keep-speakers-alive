@@ -95,11 +95,12 @@ It does not keep the computer awake, and it cannot wake it up. A running
 process has nothing to wake anything with: in hibernation it does not exist,
 and under Modern Standby Windows freezes it. After the machine wakes up, the
 pulse goes out straight away rather than at the end of the interval — the
-speakers slept through it too. The same at logon, and the same the moment you
-plug a chosen speaker in: connecting it to a machine that has been running for
-a while used to buy silence for up to a whole interval. And if the pulse cannot
-be played because the device has yet to come back, it is retried within seconds
-instead of one interval later.
+speakers slept through it too. The same at logon, and the same the moment a
+chosen speaker becomes reachable again: you plug it in, or you un-mute it in
+Windows (volume back off zero counts too). Both used to buy silence for up to
+a whole interval — a muted output accepts the pulse and plays nothing at all.
+And if the pulse cannot be played because the device has yet to come back, it
+is retried within seconds instead of one interval later.
 
 ---
 

@@ -143,12 +143,16 @@ JAK ČASTO POSÍLAT IMPULZ
     kratší než doba, po které reproduktory usnou. Když přesto
     usínají, zkrať ho.
 
-    Ve třech případech se interval nečeká a impulz jde hned:
+    Ve čtyřech případech se interval nečeká a impulz jde hned:
     po spuštění aplikace (tedy i po přihlášení do Windows),
-    po probuzení počítače a ve chvíli, kdy připojíš vybraný
-    reproduktor — reproduktory v těch chvílích spí a čekat
-    na ně dalších třeba 15 minut nemá smysl. Nově připojené
-    zařízení aplikace zpozoruje nejpozději do 10 sekund.
+    po probuzení počítače, ve chvíli, kdy připojíš vybraný
+    reproduktor, a ve chvíli, kdy mu ve Windows zrušíš ztlumení
+    (nebo vytáhneš hlasitost z nuly) — reproduktory v těch
+    chvílích spí a čekat na ně dalších třeba 15 minut nemá
+    smysl. Ztlumené zařízení impulz přijme a nepřehraje nic,
+    takže usne úplně stejně, jako by aplikace neběžela. Nově
+    připojené i odtlumené zařízení aplikace zpozoruje
+    nejpozději do 10 sekund.
     Když se impulz nepodaří přehrát (zařízení se po probuzení
     ještě nestihlo přihlásit), zkusí se to znovu za 10, 20, 40
     a pak třikrát po minutě — teprve potom se čeká celý

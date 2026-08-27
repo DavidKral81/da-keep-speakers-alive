@@ -316,7 +316,19 @@ keep_alive.log (kde leží, je v oddílu 10). Log je vždy anglicky.
       není zaškrtnuté nic.
 
   Reproduktory usínají dál
-      Zkrať interval, pak zvyš hlasitost — viz oddíl 5.
+      Nejdřív zkontroluj, jestli nemáš ten výstup ve Windows
+      ztlumený nebo staženou hlasitost na nulu — impulz se pak
+      přehraje "naprázdno" a reproduktory usnou, jako by
+      aplikace neběžela. Aplikace to sama hlídá a v okamžiku
+      zrušení ztlumení pošle impulz, ale po celou dobu ztlumení
+      jim nic nepomůže. Když je zvuk v pořádku, zkrať interval
+      a pak zvyš hlasitost — viz oddíl 5.
+
+  "Could not read the mute state: …"
+      Windows nepustilo aplikaci ke stavu ztlumení. Impulzy
+      chodí dál úplně normálně; nefunguje jen ta jedna věc
+      navíc — impulz ve chvíli, kdy zrušíš ztlumení. Hláška se
+      do logu zapíše jednou, ne při každém pokusu.
 
   Impulz je slyšet, nebo praská
       Viz oddíl 6.

@@ -331,7 +331,19 @@ Look at "Status" in the window first, then at keep_alive.log
       ticked in the list.
 
   The speakers still fall asleep
-      Shorten the interval, then raise the volume - see section 5.
+      First check whether that output is muted in Windows, or
+      its volume is at zero - the pulse then plays into nothing
+      and the speakers fall asleep just as if the app were not
+      running. The app watches for this and pulses the moment
+      you un-mute, but nothing helps them while the mute is on.
+      If the sound is fine, shorten the interval and then raise
+      the volume - see section 5.
+
+  "Could not read the mute state: ..."
+      Windows would not let the app see the mute switch. Pulses
+      carry on exactly as normal; the only thing lost is the
+      extra one sent the moment you un-mute. It is written to
+      the log once, not on every attempt.
 
   The pulse is audible, or it crackles
       See section 6.

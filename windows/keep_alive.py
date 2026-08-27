@@ -372,11 +372,11 @@ def targets(devices=None):
 # Volume at zero counts as silenced as well: it stops the pulse just as
 # completely, and someone sliding it back up expects what un-muting gives.
 #
-# Measured here: one full look - every active output, its name, its mute flag
-# and its level - takes 4.6 ms (median of 20, max 7.2). It rides along with
-# the device scan, which costs 64 ms on its own, so it adds about 7 % to
-# something that already runs once every SCAN_S. Names are only read for
-# outputs that turn out to be silent, so the usual look is cheaper still.
+# Measured here on 27.08.2026, from inside the app rather than a prototype:
+# one full look - every active output, its name, its mute flag and its level -
+# takes 3.4 ms (median of 20, max 6.5). It rides along with the device scan,
+# which was measured at 52 ms in the same run, so it adds about 6 % to
+# something that already runs once every SCAN_S and needs no timer of its own.
 
 _ole32 = ctypes.windll.ole32
 
@@ -433,11 +433,18 @@ def _slot(iface, index, restype, argtypes):
 def _com(iface, index, argtypes, *args):
     """Call a COM method that answers with an HRESULT. Raises when it fails.
 
+    The return type is a plain long, NOT ctypes.HRESULT. HRESULT carries its
+    own check and raises before this code ever sees the value, which sounds
+    convenient and costs the one thing worth having: measured here, a failing
+    call came back as "OSError: [WinError -2147024809] The parameter is
+    incorrect" with nothing to say WHICH of the five calls produced it. The
+    vtable index below is the whole point of the message.
+
     Never silenced: a failed call means the mute state is unknown, and the one
     thing that must not happen is answering "not muted" to a question that was
     never really asked - see muted_devices().
     """
-    result = _slot(iface, index, ctypes.HRESULT, argtypes)(iface, *args)
+    result = _slot(iface, index, ctypes.c_long, argtypes)(iface, *args)
     if result != _S_OK:
         raise OSError(f"Core Audio call {index}: 0x{result & 0xFFFFFFFF:08x}")
 
@@ -512,8 +519,22 @@ def _read_silenced():
                                      ctypes.POINTER(ctypes.c_void_p)),
                      position, ctypes.byref(device))  # Item
                 try:
-                    if _is_silent(device):
-                        silent.add(_key(_friendly_name(device)))
+                    # The name is read FIRST, even though only silent devices
+                    # end up in the set. Without a name there is no way to say
+                    # which device a failure belongs to, and a device that
+                    # simply vanished from the answer looks exactly like one
+                    # that was un-muted - which would pulse at it.
+                    name = _key(_friendly_name(device))
+                    try:
+                        if _is_silent(device):
+                            silent.add(name)
+                    except OSError:
+                        # One endpoint refusing to answer must not throw away
+                        # what the others said - a device being unplugged
+                        # mid-enumeration is ordinary. Counted as silent on
+                        # purpose: "cannot tell" has to behave like "do not
+                        # pulse at it", never like "it just became audible".
+                        silent.add(name)
                 finally:
                     _release(device)
             return silent
@@ -541,6 +562,14 @@ def muted_devices():
     # RPC_E_CHANGED_MODE says this thread already lives in a different
     # apartment. COM works either way; it only must not be uninitialised here,
     # because this thread is not the one that set it up.
+    #
+    # In practice that is exactly what happens: PortAudio takes an apartment
+    # of its own when refresh_devices() starts it, and the engine calls that
+    # first, so the answer measured in the engine thread is RPC_E_CHANGED_MODE
+    # and the CoUninitialize below never runs. The branch stays anyway - it is
+    # what keeps this correct when called from a thread that has no COM yet
+    # (checked from such a thread: the set comes back fine), and dropping it
+    # would leak an apartment there.
     ours = started in (_S_OK, _S_FALSE)
     try:
         silent = _read_silenced()
@@ -944,7 +973,14 @@ class Engine(threading.Thread):
             # blaming a USB event that never took place sends the next
             # investigation the wrong way.
             return " (a new device to keep awake)"
-        if was_quiet and quiet is not None and was_quiet - quiet:
+        # Intersected with what is still HERE, and that is not a detail. The
+        # muted set only ever holds devices that are present, so a muted
+        # speaker being unplugged drops out of it exactly like one being
+        # un-muted - and reading that as "it became audible" pulses at a device
+        # that has just gone, while send() reports it missing in the same
+        # breath. The log would then say the opposite of what happened, which
+        # is the one thing it is there to prevent.
+        if quiet is not None and was_quiet and (was_quiet - quiet) & here:
             return " (a device is audible again)"
         return None
 

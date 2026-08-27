@@ -699,6 +699,23 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
         check("muting one is not a reason to pulse either",
               engine.a_device_needs_a_pulse() is None, sorted(engine.muted))
 
+        # A muted device that goes AWAY drops out of the muted set as surely as
+        # one that gets un-muted - the set only ever holds devices that are
+        # present. Reading that as "it became audible" pulses at a speaker that
+        # has just been unplugged, and writes a log line saying it is audible
+        # again while send() reports it missing in the same breath.
+        #
+        # The check above this one cannot catch that: nothing is muted there,
+        # so there is nothing to drop out. It has to be muted first.
+        engine.scanned_at = 0.0
+        here[:] = [headphones]
+        check("a muted device being unplugged is NOT it becoming audible",
+              engine.a_device_needs_a_pulse() is None, sorted(engine.muted or ()))
+        here[:] = [headphones, speakers]
+        silent = [speakers]
+        engine.scanned_at = 0.0
+        engine.a_device_needs_a_pulse()      # back to: both here, one muted
+
         # The trap: both things happening in the SAME scan - something arrives
         # while something else is un-muted. Only one pulse goes out, so the
         # answer that did NOT fire must still leave its watch up to date, or
@@ -1022,6 +1039,62 @@ def test_texts():
     texts.set_language(K.CFG.get("language", "cs"))
 
 
+def test_one_endpoint_that_will_not_answer():
+    """One difficult output must not throw away what all the others said.
+
+    Asking Core Audio walks every active endpoint one by one, and any of them
+    can refuse - a device being unplugged half way through the walk is
+    ordinary. Letting that failure out would mean the whole answer comes back
+    as "cannot tell", and the un-mute pulse would quietly never happen again
+    while it lasted.
+
+    The other half matters just as much: a device that could not be read has
+    to count as SILENT. Dropping it out of the set instead would look exactly
+    like it becoming audible, and would pulse at a device nobody touched.
+
+    Talks to the real Core Audio of this machine - only _is_silent() is stood
+    in for, so the walk itself is the real one. Asked through muted_devices()
+    rather than _read_silenced() on purpose: that is the door the app uses, and
+    a broken walk then shows up as a red check rather than as a stack trace.
+    """
+    print("one endpoint that will not answer")
+    saved = K._is_silent
+    try:
+        K._is_silent = lambda device: True
+        everything = K.muted_devices()
+        check("the machine has endpoints to walk at all", bool(everything),
+              sorted(everything or ()))
+
+        asked = []
+
+        def refuses_the_first(device):
+            asked.append(device)
+            if len(asked) == 1:
+                raise OSError("pretend this endpoint is being unplugged")
+            return True
+
+        K._is_silent = refuses_the_first
+        after = K.muted_devices()
+        check("a refusing endpoint does not throw away the whole answer",
+              after == everything, sorted(after or ()) or repr(after))
+        check("and the walk went on past it, it did not stop there",
+              len(asked) == len(everything),
+              f"{len(asked)} of {len(everything)}")
+
+        # The counter-case: without a name there is no way to say which device
+        # the trouble belongs to, so the whole reading has to admit it failed.
+        saved_name = K._friendly_name
+        try:
+            K._friendly_name = lambda device: (_ for _ in ()).throw(
+                OSError("pretend the name cannot be read"))
+            check("but a nameless endpoint makes the whole reading unknown",
+                  K.muted_devices() is None, K.muted_devices())
+        finally:
+            K._friendly_name = saved_name
+    finally:
+        K._is_silent = saved
+
+
 def main():
     for test in (test_pulse, test_pulse_bar, test_pulse_failure_clears_the_bar,
                  test_devices, test_what_a_missing_device_reports,
@@ -1029,6 +1102,7 @@ def main():
                  test_a_pause_runs_in_real_time,
                  test_the_engine_loop_does_its_job,
                  test_a_speaker_plugged_in_gets_the_pulse_at_once,
+                 test_one_endpoint_that_will_not_answer,
                  test_config_encoding, test_problems, test_config_template,
                  test_texts):
         test()

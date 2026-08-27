@@ -222,11 +222,19 @@ try:
     # itself holds the task off while it copies, so a failure to switch it
     # back lands exactly here.
     pretend_task_exists[0], pretend_task_enabled[0] = True, False
+    said = []
     try:
         result = I.install(task=True, start_menu=False, desktop=False,
-                           report=report)
+                           report=said.append)
         check("a registered but DISABLED task is not called success",
               False, result)
+        # WHICH problem, not just that there was one. Reporting the generic
+        # ins_prob_task here would pass a check on the result alone, and the
+        # user would be told "the scheduled task" with no hint that the fix is
+        # to enable it - which is the entire point of the new message.
+        check("and it says the task is DISABLED, not just that it failed",
+              True, any(I.tx("ins_prob_task_disabled") in line
+                        for line in said))
     finally:
         pretend_task_enabled[0] = True
     # ... and the same run passes once it is enabled, so the check above is

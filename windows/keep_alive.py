@@ -294,12 +294,20 @@ def default_output():
     sd.default.device would answer for PortAudio's default host API, which is
     MME on Windows - a different numbering than the one the app works with.
     The default has to be taken from the WASAPI host API itself.
+
+    Under the lock for the same reason as outputs(): the window asks from the
+    Tk thread while the engine may be between _terminate() and _initialize(),
+    and asking a half-restarted PortAudio is how a process dies without a
+    message. This was already true before, but the scan for newly plugged-in
+    devices restarts PortAudio every SCAN_S rather than once a pulse, so the
+    window now meets that window of time far more often.
     """
-    api = _hostapi_index()
-    if api is None:
-        return None
-    index = sd.query_hostapis(api)["default_output_device"]
-    return None if index is None or index < 0 else int(index)
+    with AUDIO_LOCK:
+        api = _hostapi_index()
+        if api is None:
+            return None
+        index = sd.query_hostapis(api)["default_output_device"]
+        return None if index is None or index < 0 else int(index)
 
 
 def _key(name):
@@ -585,7 +593,11 @@ class Engine(threading.Thread):
         # long, and the pulse is inaudible on purpose, so that bar is the only
         # sign the user gets that anything happened at all.
         duration = float(CFG.get("duration_s", 0.4))
-        self.playing_span = duration * len(chosen)
+        # BUFFER_S is part of it: the sound does not start when write() is
+        # called, it starts once the buffer has filled, and play() waits for
+        # that same buffer to drain before closing. Counting only the duration
+        # left the bar finished while the speaker was still sounding.
+        self.playing_span = (duration + BUFFER_S) * len(chosen)
         self.playing_from = time.monotonic()
         try:
             for device in chosen:
@@ -742,7 +754,14 @@ class Engine(threading.Thread):
                     self.woke_up = False
                     self.send(" (after a break)" if after_a_break else "")
                 elif self.a_device_just_arrived():
-                    self.send(" (a device was connected)")
+                    # Not "a device was connected": the set also grows when the
+                    # user ticks a speaker that was plugged in all along. The
+                    # pulse is right either way - that speaker is not being
+                    # kept awake yet - but the log is the only record of what
+                    # really happened, and a line blaming a USB event that
+                    # never took place sends the next investigation the wrong
+                    # way.
+                    self.send(" (a new device to keep awake)")
             except Exception as error:
                 # Deliberately everything: this is the last line before the
                 # thread dies, and a dead engine is invisible to the user.

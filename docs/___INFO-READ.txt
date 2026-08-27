@@ -157,7 +157,8 @@ HOW OFTEN TO SEND A PULSE
     too), the computer waking up, and plugging in a speaker you
     picked - they are asleep at all three moments, and waiting
     another fifteen minutes for them makes no sense. A device
-    that has just been connected is noticed within 10 seconds. If the pulse cannot be played (the device
+    that has just been connected is noticed within 10 seconds.
+    If the pulse cannot be played (the device
     has yet to come back after a wake-up), it is tried again
     after 10, 20, 40 seconds and then three more times a minute
     apart, before going back to the full interval - a device

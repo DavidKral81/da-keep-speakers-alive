@@ -527,13 +527,22 @@ def test_the_engine_loop_does_its_job():
 
         def one_turn_then_stop(reason=""):
             sent.append(reason)
+
+        # The loop is stopped from check_for_a_break(), which runs first every
+        # turn - NOT from the stand-in send(). Hanging the exit on send() being
+        # called means that when the pulse is the thing that broke, this test
+        # HANGS instead of failing, and a hung test looks slow rather than red.
+        def one_turn_only():
+            saved_check()
             engine.stop.set()
             engine.wake.set()
 
+        engine.check_for_a_break = one_turn_only
         engine.send = one_turn_then_stop
         engine.woke_up = True
         engine.stop.clear()
         engine.run()
+        engine.check_for_a_break = saved_check
         check("a wake-up pulses without waiting out the interval",
               sent == [" (after a break)"], sent)
 
@@ -664,7 +673,7 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
         engine.run()
         engine.check_for_a_break = saved_check_break
         check("and the loop is the one that sends it",
-              sent == [" (a device was connected)"], sent)
+              sent == [" (a new device to keep awake)"], sent)
 
         # Wired in, part two: the REAL send() re-reads the list itself, so it
         # has to leave the watch up to date. Otherwise a device that arrived

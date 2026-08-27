@@ -327,8 +327,9 @@ keep_alive.log (kde leží, je v oddílu 10). Log je vždy anglicky.
   "Could not read the mute state: …"
       Windows nepustilo aplikaci ke stavu ztlumení. Impulzy
       chodí dál úplně normálně; nefunguje jen ta jedna věc
-      navíc — impulz ve chvíli, kdy zrušíš ztlumení. Hláška se
-      do logu zapíše jednou, ne při každém pokusu.
+      navíc — impulz ve chvíli, kdy zrušíš ztlumení. Dokud
+      závada trvá, je hláška v logu jednou; když se to střídá
+      (chvíli to jde, chvíli ne), objeví se pokaždé znovu.
 
   Impulz je slyšet, nebo praská
       Viz oddíl 6.

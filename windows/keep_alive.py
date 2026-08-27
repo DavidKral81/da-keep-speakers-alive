@@ -512,7 +512,7 @@ def _read_silenced():
             count = wintypes.UINT()
             _com(collection, 3, (ctypes.POINTER(wintypes.UINT),),
                  ctypes.byref(count))                # GetCount
-            silent = set()
+            silent, unsure = set(), set()
             for position in range(count.value):
                 device = ctypes.c_void_p()
                 _com(collection, 4, (wintypes.UINT,
@@ -520,10 +520,16 @@ def _read_silenced():
                      position, ctypes.byref(device))  # Item
                 try:
                     # The name is read FIRST, even though only silent devices
-                    # end up in the set. Without a name there is no way to say
-                    # which device a failure belongs to, and a device that
+                    # end up in a set. Without a name there is no way to say
+                    # which device a failure belongs to - and a device that
                     # simply vanished from the answer looks exactly like one
-                    # that was un-muted - which would pulse at it.
+                    # that was un-muted, which would pulse at it.
+                    #
+                    # A name that cannot be read is therefore NOT caught here:
+                    # it throws, and the whole reading comes back as "could not
+                    # tell". That is deliberate. The alternative - skipping the
+                    # endpoint - would drop it out of the answer, which is the
+                    # very thing the previous line guards against.
                     name = _key(_friendly_name(device))
                     try:
                         if _is_silent(device):
@@ -531,13 +537,14 @@ def _read_silenced():
                     except OSError:
                         # One endpoint refusing to answer must not throw away
                         # what the others said - a device being unplugged
-                        # mid-enumeration is ordinary. Counted as silent on
-                        # purpose: "cannot tell" has to behave like "do not
-                        # pulse at it", never like "it just became audible".
-                        silent.add(name)
+                        # mid-enumeration is ordinary. It goes into its own
+                        # set: calling it MUTED was wrong in the other
+                        # direction, because it then dropped out again on the
+                        # next good reading and looked like an un-mute.
+                        unsure.add(name)
                 finally:
                     _release(device)
-            return silent
+            return silent, unsure
         finally:
             _release(collection)
     finally:
@@ -545,12 +552,17 @@ def _read_silenced():
 
 
 def muted_devices():
-    """Keys of the outputs Windows is silencing, or None when it could not tell.
+    """(outputs Windows is silencing, outputs that would not say), or None.
 
-    None is NOT an empty set, and the difference is the whole point. A failed
-    read that answered "nothing is muted" would look exactly like every muted
-    device being un-muted at once, and would fire a pulse at each of them the
-    moment reading started working again.
+    Three answers per device, not two: muted, not muted, and could not tell.
+    Folding the third into either of the others is wrong in both directions -
+    calling it muted makes it look un-muted on the next good reading, and
+    calling it audible pulses at it straight away. It gets its own set.
+
+    None for the whole thing is not an empty set either. A failed read that
+    answered "nothing is muted" would look exactly like every muted device
+    being un-muted at once, and would fire a pulse at each of them the moment
+    reading started working again.
 
     The keys come out of _key(), the same reduction the rest of the app pairs
     device names by. Measured here, Core Audio and PortAudio hand out the very
@@ -572,9 +584,9 @@ def muted_devices():
     # would leak an apartment there.
     ours = started in (_S_OK, _S_FALSE)
     try:
-        silent = _read_silenced()
+        answer = _read_silenced()
         _mute_problem = None        # back in working order; log the next fault
-        return silent
+        return answer
     except Exception as error:      # any COM failure at all
         # Not silenced, and not repeated either: this runs every SCAN_S, so a
         # fault that stays would write a line every ten seconds. Only a message
@@ -672,12 +684,15 @@ class Engine(threading.Thread):
     # asleep rather than merely busy.
     BREAK_S = 60
 
-    # How often to look for a speaker that has just been plugged in. This one
-    # cannot run every second like the rest of the loop: seeing a new device
-    # means restarting PortAudio, measured at 64 ms on this machine (median of
-    # twelve runs), and doing that every second would be 6 % of a core spent
-    # on an app that is meant to be unnoticeable. Ten seconds is nothing next
-    # to an interval counted in minutes, and costs 0.6 %.
+    # How often to look for a speaker that has just been plugged in - or that
+    # Windows has stopped muting. This one cannot run every second like the
+    # rest of the loop: seeing a new device means restarting PortAudio,
+    # measured at 52 ms on this machine (median of ten runs on 27.08.2026; an
+    # earlier run of twelve gave 64 ms, so take it as "tens of milliseconds",
+    # not as a constant). Every second would be 5 % of a core spent on an app
+    # that is meant to be unnoticeable. Ten seconds is nothing next to an
+    # interval counted in minutes, and costs about 0.5 %. Reading the mute
+    # state rides along with it and adds 3.4 ms.
     SCAN_S = 10
 
     def __init__(self):
@@ -816,8 +831,7 @@ class Engine(threading.Thread):
         # The mute watch is brought up to date for exactly the same reason: a
         # device un-muted between two scans got THIS pulse, and would still
         # look newly audible at the next scan and earn a second one.
-        silenced = muted_devices()
-        self.muted = None if silenced is None else self.seen & silenced
+        self.note_the_mute(self.seen)
         self.scanned_at = time.monotonic()
         # Kept as (key, arguments) rather than as finished sentences: the same
         # problem has to reach the window in the user's language and the log in
@@ -961,10 +975,8 @@ class Engine(threading.Thread):
         self.scanned_at = now
         refresh_devices()
         here = {_key(device["name"]) for device in targets()[0]}
-        silenced = muted_devices()
-        quiet = None if silenced is None else here & silenced
         arrived, self.seen = self.seen, here
-        was_quiet, self.muted = self.muted, quiet
+        was_quiet = self.note_the_mute(here)
         if arrived is not None and here - arrived:
             # Not "a device was connected": the set also grows when the user
             # ticks a speaker that was plugged in all along. The pulse is right
@@ -980,9 +992,33 @@ class Engine(threading.Thread):
         # that has just gone, while send() reports it missing in the same
         # breath. The log would then say the opposite of what happened, which
         # is the one thing it is there to prevent.
-        if quiet is not None and was_quiet and (was_quiet - quiet) & here:
+        if was_quiet and (was_quiet - self.muted) & here:
             return " (a device is audible again)"
         return None
+
+    def note_the_mute(self, present):
+        """Update the mute watch for `present`. Returns what it held before.
+
+        The one place the watch is written, so the scan and send() cannot
+        disagree about it. Returns None when nothing could be read - and in
+        that case the watch is LEFT ALONE rather than emptied: throwing it away
+        would lose an un-mute that happened while the reading was broken, and
+        the next scan would quietly fill the watch in again as though the
+        device had been audible all along.
+
+        A device that would not answer keeps whatever was known about it, which
+        is what makes (before - self.muted) mean "became audible" and nothing
+        else. Only a device that was known muted and is now known not to be
+        drops out of the set.
+        """
+        answer = muted_devices()
+        if answer is None:
+            return None
+        silenced, could_not_tell = answer
+        known = self.muted or set()
+        before, self.muted = self.muted, ((present & silenced)
+                                          | (present & could_not_tell & known))
+        return before
 
     def trouble(self, error):
         """Something in the loop threw. Show it - never let it end the thread.

@@ -624,7 +624,8 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
     saved_targets, saved_cfg = K.targets, dict(K.CFG)
     saved_muted = K.muted_devices
     here = []                       # what the stand-in currently "sees"
-    silent = []                     # ... and which of those are silenced
+    silent = []                     # ... which of those are silenced
+    unsure = []                     # ... and which would not answer at all
 
     def fake_targets(devices=None):
         return [{"name": name, "index": 0, "samplerate": 48000, "channels": 2}
@@ -632,7 +633,11 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
 
     def fake_muted():
         # None is Core Audio refusing to answer, which is NOT "nothing muted".
-        return None if silent is None else {K._key(n) for n in silent}
+        # Otherwise (what is silenced, what would not say) - three answers per
+        # device, and the third one is the whole reason this is a pair.
+        if silent is None:
+            return None
+        return ({K._key(n) for n in silent}, {K._key(n) for n in unsure})
 
     speakers = "Speakers (4 - USB Advanced Audio Device)"
     headphones = "Headphones (RODE NT-USB+)"
@@ -755,16 +760,65 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
         engine.a_device_needs_a_pulse()      # the speakers are known muted now
         engine.scanned_at = 0.0
         silent = None                        # ... and now the read fails
-        check("a failed read does not pulse, and admits it knows nothing",
-              engine.a_device_needs_a_pulse() is None and engine.muted is None,
-              engine.muted)
+        check("a failed read does not pulse",
+              engine.a_device_needs_a_pulse() is None, engine.muted)
+        check("and it KEEPS what was known instead of emptying the watch",
+              engine.muted == {K._key(speakers)}, engine.muted)
         engine.scanned_at = 0.0
         silent = [speakers]                  # working again, still muted
-        check("the look after it only fills in, it does not pulse",
+        check("the look after it does not pulse either, nothing changed",
               engine.a_device_needs_a_pulse() is None, sorted(engine.muted))
         engine.scanned_at = 0.0
         silent = []
         check("proved: un-muting after that failure does pulse",
+              engine.a_device_needs_a_pulse() == " (a device is audible again)",
+              sorted(engine.muted))
+
+        # The point of keeping the watch: an un-mute that happens WHILE the
+        # reading is broken still has to be noticed once it works again.
+        # Emptying the watch would make the next good look "fill it in" and
+        # the pulse would never come.
+        engine.scanned_at = 0.0
+        silent = [speakers]
+        engine.a_device_needs_a_pulse()      # muted and known to be
+        engine.scanned_at = 0.0
+        silent = None                        # reading breaks...
+        engine.a_device_needs_a_pulse()
+        engine.scanned_at = 0.0
+        silent = []                          # ...and it was un-muted meanwhile
+        check("an un-mute during a broken reading is caught afterwards",
+              engine.a_device_needs_a_pulse() == " (a device is audible again)",
+              sorted(engine.muted))
+
+        # One endpoint refusing to answer is NOT the same as it being muted.
+        # Counting it as muted meant it dropped out again on the next good
+        # reading and looked like an un-mute - a pulse, and a log line, about
+        # a device nobody had touched.
+        engine.scanned_at = 0.0
+        silent, unsure = [], []
+        engine.a_device_needs_a_pulse()      # both here, neither muted
+        engine.scanned_at = 0.0
+        unsure = [speakers]                  # the speakers will not answer
+        check("an endpoint that will not answer is not a reason to pulse",
+              engine.a_device_needs_a_pulse() is None, sorted(engine.muted))
+        engine.scanned_at = 0.0
+        unsure = []                          # and now it answers again
+        check("and recovering from that is not an un-mute either",
+              engine.a_device_needs_a_pulse() is None, sorted(engine.muted))
+
+        # The other direction: a device that WAS muted and then would not
+        # answer keeps its muted state, so the real un-mute still counts.
+        engine.scanned_at = 0.0
+        silent = [speakers]
+        engine.a_device_needs_a_pulse()
+        engine.scanned_at = 0.0
+        silent, unsure = [], [speakers]      # muted, then goes quiet on us
+        check("a muted device that stops answering stays muted in the watch",
+              engine.a_device_needs_a_pulse() is None
+              and engine.muted == {K._key(speakers)}, sorted(engine.muted))
+        engine.scanned_at = 0.0
+        unsure = []                          # answers again, and is audible
+        check("so the real un-mute after it is still caught",
               engine.a_device_needs_a_pulse() == " (a device is audible again)",
               sorted(engine.muted))
 
@@ -1060,10 +1114,23 @@ def test_one_endpoint_that_will_not_answer():
     print("one endpoint that will not answer")
     saved = K._is_silent
     try:
-        K._is_silent = lambda device: True
-        everything = K.muted_devices()
-        check("the machine has endpoints to walk at all", bool(everything),
-              sorted(everything or ()))
+        # Counted by how many endpoints the walk really visits, NOT by how many
+        # keys come back: _key() drops the port number, so two outputs of the
+        # same model collapse into one key and a count taken from the set would
+        # go red over working code.
+        walked = []
+        K._is_silent = lambda device: walked.append(device) or True
+        answer = K.muted_devices()
+        check("Core Audio answered at all on this machine", answer is not None,
+              repr(answer))
+        if answer is None:
+            return                          # nothing further can be told here
+        everything, unsure = answer
+        endpoints = len(walked)
+        check("the machine has endpoints to walk at all", endpoints > 0,
+              endpoints)
+        check("and none of them were unreadable to start with", unsure == set(),
+              sorted(unsure))
 
         asked = []
 
@@ -1074,12 +1141,15 @@ def test_one_endpoint_that_will_not_answer():
             return True
 
         K._is_silent = refuses_the_first
-        after = K.muted_devices()
+        silent_after, unsure_after = K.muted_devices()
         check("a refusing endpoint does not throw away the whole answer",
-              after == everything, sorted(after or ()) or repr(after))
+              silent_after | unsure_after == everything,
+              sorted(silent_after | unsure_after))
+        check("and it lands in 'could not tell', never in 'muted'",
+              len(unsure_after) == 1 and not (unsure_after & silent_after),
+              f"silent={sorted(silent_after)} unsure={sorted(unsure_after)}")
         check("and the walk went on past it, it did not stop there",
-              len(asked) == len(everything),
-              f"{len(asked)} of {len(everything)}")
+              len(asked) == endpoints, f"{len(asked)} of {endpoints}")
 
         # The counter-case: without a name there is no way to say which device
         # the trouble belongs to, so the whole reading has to admit it failed.

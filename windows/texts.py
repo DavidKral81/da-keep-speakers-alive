@@ -133,7 +133,6 @@ CS = {
     "card_app": "Chování aplikace",
     "sw_active": "Udržovat reproduktory vzhůru",
     "sw_autostart": "Spouštět po přihlášení do Windows",
-    "sw_log": "Zapisovat log do souboru",
     "link_log": "Otevřít log",
     # Problems that have nowhere else to be seen - a zabalená aplikace nemá
     # konzoli. Viz problem() v keep_alive.py.
@@ -341,7 +340,6 @@ EN = {
     "card_app": "Application behaviour",
     "sw_active": "Keep the speakers awake",
     "sw_autostart": "Start when I log in to Windows",
-    "sw_log": "Write a log file",
     "link_log": "Open the log",
     # Problems with nowhere else to show - a packaged app has no console.
     # See problem() in keep_alive.py. These are also what the LOG says, so

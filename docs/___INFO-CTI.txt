@@ -169,10 +169,19 @@ JAKÝ IMPULZ POSÍLAT
 CHOVÁNÍ APLIKACE
     Udržovat reproduktory vzhůru      hlavní vypínač
     Spouštět po přihlášení do Windows viz oddíl 7
-    Zapisovat log do souboru
     Otevřít log                       odkaz — otevře soubor
                                       keep_alive.log (kde leží,
                                       je v oddílu 10)
+
+    Log se zapisuje pořád a vypínač na něj v okně není. Přibude
+    kolem 28 kB za den a víc než 4 MB nezabere nikdy — po 2 MB
+    se založí nový soubor a starý se přejmenuje na .log.1,
+    takže se drží nejvýš dva. Je to jediný záznam o tom, co
+    aplikace dělala ve chvílích, které se nedají zopakovat
+    (spánek, odpojený dok, ztlumení).
+
+    Když ho přesto nechceš, přepiš v config.json (oddíl 10)
+    hodnotu "log" na false.
 
 JAZYK
     Vlaječkami vpravo nahoře v okně. Přepne se hned, včetně

@@ -2117,10 +2117,14 @@ class Settings:
         self.sw_active = self._switch(card, tx("sw_active"), "active")
         self.sw_autostart = self._switch(card, tx("sw_autostart"), None,
                                          autostart_enabled, autostart_set)
-        self._switch(card, tx("sw_log"), "log")
-        # The log is the only record of what the app really did, and it lives
-        # in %APPDATA% where nobody stumbles over it. Right under the switch
-        # that writes it, because that is where someone goes looking.
+        # No switch for the log any more, only the link. Writing it costs
+        # 28 kB a day (measured over ten days of real use) and can never pass
+        # 4 MB, because rotation keeps two files of two - so there was nothing
+        # to protect anyone from. What switching it off did cost was the one
+        # record of what the app did in the moments nobody can reproduce: the
+        # "a partial pulse is logged as a total failure" bug was found in a
+        # real log, not by any test here. The key stays in config.json for
+        # anyone who really wants it off; the window no longer offers it.
         self._link(card, tx("link_log"),
                    self._open_log).pack(anchor="w", pady=(6, 0))
         # Where the problems from problem() surface. Amber like the pulse

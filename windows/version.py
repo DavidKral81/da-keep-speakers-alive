@@ -7,7 +7,7 @@ window, in the file properties and in "Installed apps" can never disagree.
 To release a new version change it HERE ONLY.
 """
 
-VERSION = "1.3"
+VERSION = "1.4"
 
 # Where the releases live.
 PROJECT_URL = "https://github.com/DavidKral81/da-keep-speakers-alive"

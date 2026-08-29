@@ -33,6 +33,7 @@
   "_language": "cs or en.",
   "language": "cs",
 
-  "_log": "false = do not write keep_alive.log.",
+  "_log": "false = do not write keep_alive.log. Only settable here - the",
+  "__log": "window has no switch for it, see the manual.",
   "log": true
 }

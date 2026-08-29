@@ -475,6 +475,52 @@ def main():
         step("every link at the foot opens what it promises",
              every_link_leads_somewhere)
 
+        def a_refused_link_says_so_and_then_stops_saying_it():
+            """EVERY link has to report a refusal - and take it back later.
+
+            Only the log link used to handle it, so the other three could be
+            clicked and do nothing whatsoever, in a build with no console for
+            the exception to land in.
+
+            The second half matters just as much: opening a link is a one-off
+            action, not a lasting condition. One failed click must not leave
+            an amber line in the window for the rest of the session, when
+            clicking again works perfectly well.
+            """
+            saved_start = K.os.startfile
+            saved_problems = list(K.PROBLEMS)
+            try:
+                def refuses(path):
+                    raise OSError("pretend Windows will not open this")
+
+                for label, action in (
+                        (K.tx("link_manual"), settings._open_manual),
+                        (K.tx("link_log"), settings._open_log),
+                        (K.tx("link_project"), settings._open_project),
+                        (K.tx("link_updates"), settings._open_releases)):
+                    K.PROBLEMS.clear()
+                    K.os.startfile = refuses
+                    action()
+                    root.update()
+                    assert K.PROBLEMS, f'"{label}" failed in silence'
+                    assert settings.problem_label["text"], \
+                        f'"{label}" failed without a word in the window'
+
+                    # and now it works again - the warning has to go
+                    K.os.startfile = lambda path: None
+                    action()
+                    root.update()
+                    assert not K.PROBLEMS, \
+                        f'"{label}" kept complaining after it worked: {K.PROBLEMS}'
+                    assert not settings.problem_label["text"], \
+                        f'"{label}" left its warning on screen'
+            finally:
+                K.os.startfile = saved_start
+                K.PROBLEMS[:] = saved_problems
+                settings._refresh_status()
+        step("a link that will not open says so, and takes it back",
+             a_refused_link_says_so_and_then_stops_saying_it)
+
         def two_columns_without_gaps():
             """Wide window: the cards must sit right under one another.
 

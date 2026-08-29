@@ -1260,7 +1260,23 @@ def test_one_endpoint_that_will_not_answer():
         # same model collapse into one key and a count taken from the set would
         # go red over working code.
         walked = []
-        K._endpoint_volume = lambda device: (walked.append(device), (True, 1.0))[1]
+
+        def every_other_one_is_muted(device):
+            # Deliberately NOT "muted, 1.0" for all of them. With everything
+            # muted, the set of muted devices and the set of readings are the
+            # same thing - so a check comparing them passes even if the
+            # attenuation were only ever recorded for muted devices, which
+            # would leave the correction dead for every normal output. Mixing
+            # the answers is what makes the comparison mean anything.
+            #
+            # The name is read HERE, while the COM pointer is still alive.
+            # Keeping the pointer for later reads freed memory - it is
+            # released as soon as the walk moves on, and using it afterwards
+            # took the whole run down with an access violation.
+            walked.append(K._key(K._friendly_name(device)))
+            return len(walked) % 2 == 1, 0.5 if len(walked) % 2 else 1.0
+
+        K._endpoint_volume = every_other_one_is_muted
         answer = K.endpoint_state()
         check("Core Audio answered at all on this machine", answer is not None,
               repr(answer))
@@ -1272,8 +1288,17 @@ def test_one_endpoint_that_will_not_answer():
               endpoints)
         check("and none of them were unreadable to start with", unsure == set(),
               sorted(unsure))
+        # Every endpoint that answered has to have an attenuation, muted or
+        # not - the correction is for the ones that are NOT muted, so counting
+        # only the muted ones would be exactly backwards. Keys, not visits:
+        # _key() drops the port number, so two outputs of one model share one.
+        walked_keys = set(walked)
         check("every readable endpoint came back with an attenuation",
-              set(gains) == everything, sorted(gains))
+              set(gains) == walked_keys - unsure,
+              f"gains={sorted(gains)} walked={sorted(walked_keys)}")
+        check("including the ones that are not muted",
+              bool(set(gains) - everything) or not (walked_keys - everything),
+              f"gains={sorted(gains)} muted={sorted(everything)}")
 
         asked = []
 
@@ -1285,9 +1310,13 @@ def test_one_endpoint_that_will_not_answer():
 
         K._endpoint_volume = refuses_the_first
         silent_after, unsure_after, gains_after = K.endpoint_state()
+        # Compared against every endpoint the walk visits, NOT against the
+        # muted ones: the two are only the same set when the stand-in calls
+        # everything muted, and a check that needs that to be true is a check
+        # that breaks the moment the stand-in tells the truth.
         check("a refusing endpoint does not throw away the whole answer",
-              silent_after | unsure_after == everything,
-              sorted(silent_after | unsure_after))
+              silent_after | unsure_after == walked_keys,
+              f"{sorted(silent_after | unsure_after)} vs {sorted(walked_keys)}")
         check("and it lands in 'could not tell', never in 'muted'",
               len(unsure_after) == 1 and not (unsure_after & silent_after),
               f"silent={sorted(silent_after)} unsure={sorted(unsure_after)}")
@@ -1308,6 +1337,49 @@ def test_one_endpoint_that_will_not_answer():
                 OSError("pretend the name cannot be read"))
             check("but a nameless endpoint makes the whole reading unknown",
                   K.endpoint_state() is None, K.endpoint_state())
+        finally:
+            K._friendly_name = saved_name
+
+        # Two outputs of the SAME model, plugged in at once. _key() drops the
+        # port number, so both reduce to one key and the walk leaves two
+        # different attenuations behind it - in an order Core Audio decides.
+        # Correcting by the wrong one is the one thing this feature must never
+        # do: a speaker at full volume raised by its twin's -30 dB comes out
+        # audible. So the figure is dropped and that device is not corrected.
+        saved_name = K._friendly_name
+        try:
+            twins = ["Speakers (2- USB Audio Device)",
+                     "Speakers (4- USB Audio Device)"]
+            walk = []
+
+            def same_model_twice(device):
+                walk.append(device)
+                return twins[(len(walk) - 1) % 2]
+
+            def loud_then_quiet(device):
+                # the second of the pair is turned right down
+                return False, (1.0 if len(walk) % 2 else 0.03)
+
+            K._friendly_name = same_model_twice
+            K._endpoint_volume = loud_then_quiet
+            answer = K.endpoint_state()
+            if answer is not None:
+                _, _, twin_gains = answer
+                check("two outputs sharing a key get NO correction at all",
+                      K._key(twins[0]) not in twin_gains, twin_gains)
+                check("proved: without that they would share one figure",
+                      len({K._key(n) for n in twins}) == 1,
+                      sorted({K._key(n) for n in twins}))
+
+            # ... but when both read the same, there is nothing to be wrong
+            # about, and dropping the figure would cost a correction for no
+            # reason.
+            K._endpoint_volume = lambda device: (False, 0.25)
+            answer = K.endpoint_state()
+            if answer is not None:
+                _, _, same_gains = answer
+                check("equal readings are kept - either one is right",
+                      same_gains.get(K._key(twins[0])) == 0.25, same_gains)
         finally:
             K._friendly_name = saved_name
 

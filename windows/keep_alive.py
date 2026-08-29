@@ -144,6 +144,20 @@ def read_json(path):
 PROBLEMS = []
 
 
+def forget_problem(key):
+    """Drop a problem that has just been put right.
+
+    Only for a problem that describes a ONE-OFF action - a link that would not
+    open, say. A single failed click must not leave a warning in the window for
+    the rest of the session, when clicking again works.
+
+    Never for a lasting condition (settings that cannot be read, a log that
+    cannot be written): those stay until the app is restarted, because the
+    condition does too.
+    """
+    PROBLEMS[:] = [(k, a) for k, a in PROBLEMS if k != key]
+
+
 def problem(key, **args):
     """Remember something that went wrong on the way, so it can be SEEN.
 
@@ -451,6 +465,7 @@ _PKEY_FRIENDLY_NAME = _PROPERTYKEY(
     _guid("{A45C254E-DF1C-4EFD-8020-67D146A850E0}"), 14)
 
 _endpoint_problem = None                # the last failure, so the log gets it once
+_quiet_endpoints = set()                # which ones already said so, same reason
 
 
 def _slot(iface, index, restype, argtypes):
@@ -562,6 +577,13 @@ def _read_endpoints():
             _com(collection, 3, (ctypes.POINTER(wintypes.UINT),),
                  ctypes.byref(count))                # GetCount
             silent, unsure, gains = set(), set(), {}
+            # Keys that two present endpoints share, which _key() makes
+            # possible: it drops the port number, so two outputs of the same
+            # model reduce to one key. Their attenuations are then two
+            # different numbers for one key, and there is no way to tell which
+            # belongs to the device being pulsed - so neither is used. See
+            # below where these are dropped again.
+            collided = set()
             for position in range(count.value):
                 device = ctypes.c_void_p()
                 _com(collection, 4, (wintypes.UINT,
@@ -584,6 +606,8 @@ def _read_endpoints():
                         quiet, gain = _endpoint_volume(device)
                         if quiet:
                             silent.add(name)
+                        if name in gains and gains[name] != gain:
+                            collided.add(name)
                         gains[name] = gain
                     except OSError:
                         # One endpoint refusing to answer must not throw away
@@ -599,8 +623,39 @@ def _read_endpoints():
                         # here would be indistinguishable from a real full
                         # volume reading.
                         unsure.add(name)
+                        # And it is said out loud. For this one device both
+                        # extras are off - no pulse when it is un-muted, no
+                        # volume correction - while the log went on reporting
+                        # ordinary pulses, so nothing anywhere said why it
+                        # behaves differently from the rest. Once per device
+                        # per fault, like every other message from a function
+                        # that runs every SCAN_S; the set is cleared when the
+                        # device answers again, so a fault that comes back is
+                        # written again.
+                        if name not in _quiet_endpoints:
+                            _quiet_endpoints.add(name)
+                            log(f"This output would not say how loud it is, "
+                                f"so it gets no correction and no un-mute "
+                                f"pulse: {name}")
                 finally:
                     _release(device)
+            # Two present outputs of the same model sharing one key leave two
+            # different attenuations behind, and the last one walked wins -
+            # an order Core Audio decides, not this app. Correcting a pulse by
+            # the wrong one of them is worse than not correcting it: a speaker
+            # at full volume would be raised by its twin's -32 dB and come out
+            # audible, which is the one promise this feature makes. So the
+            # figure is dropped and that device is simply not corrected.
+            #
+            # Equal readings are left alone - then it does not matter which of
+            # the two the answer came from.
+            for name in collided:
+                gains.pop(name, None)
+            # Anything that answered this time is allowed to complain again if
+            # it stops answering later. Kept as a difference rather than
+            # cleared outright, so a device that is STILL refusing does not
+            # write its line on every scan.
+            _quiet_endpoints.difference_update(set(gains) - unsure)
             return silent, unsure, gains
         finally:
             _release(collection)
@@ -2278,8 +2333,33 @@ class Settings:
         if self.tray:
             self.tray.refresh()
 
+    def _open(self, target, key="warn_open"):
+        """Hand something to Windows to open, and SAY SO when it will not.
+
+        Every link in the window goes through here, which is the point: a
+        click that does nothing at all is the worst possible answer, and in a
+        --windowed build it is the likely one - there is no console for the
+        exception to land in, so the link would simply be dead in silence.
+
+        The complaint is dropped again on the next success, because a link is
+        a one-off action rather than a lasting condition: one failed click
+        must not leave a warning standing for the rest of the session.
+
+        Returns whether it worked, so a caller with a fallback can use it.
+        """
+        try:
+            os.startfile(target)
+        except OSError as error:
+            log(f"Could not open {target}: {error}")
+            problem(key, path=str(target), error=str(error))
+            self._refresh_status()
+            return False
+        forget_problem(key)
+        self._refresh_status()
+        return True
+
     def _open_project(self):
-        os.startfile(PROJECT_URL)
+        self._open(PROJECT_URL)
 
     def _open_releases(self):
         """The release page, so the user can compare their version with it.
@@ -2289,7 +2369,7 @@ class Settings:
         in the background, and a number on a page the user opens is honest
         about when it was checked.
         """
-        os.startfile(f"{PROJECT_URL}/releases/latest")
+        self._open(f"{PROJECT_URL}/releases/latest")
 
     def _open_manual(self):
         """The manual in the window's language, wherever it happens to live.
@@ -2306,34 +2386,25 @@ class Settings:
         for pattern in patterns:
             for folder in (PROGRAM, HERE.parent / "docs", HERE):
                 manual = next(folder.glob(pattern), None)
-                if manual:
-                    os.startfile(manual)
+                if manual and self._open(manual):
                     return
-        # Nothing found. A click that does nothing at all is the worst answer,
-        # and the same manuals are in the repository - so open that instead and
-        # write down why, rather than leaving a dead link behind.
-        log("No manual found next to the program or in docs/ - "
+        # Nothing found - or found and refused by Windows. A click that does
+        # nothing at all is the worst answer, and the same manuals are in the
+        # repository, so open that instead and write down why.
+        log("No manual could be opened next to the program or in docs/ - "
             "opening the project page instead.")
-        os.startfile(PROJECT_URL)
+        self._open(PROJECT_URL)
 
     def _open_log(self):
         """Open keep_alive.log in whatever Windows uses for text files.
 
-        A click that does nothing is the worst answer here, and there are two
-        ordinary ways to get one: the file is not there yet (writing the log
-        has been switched off since before the first line was written, or
-        somebody deleted it), or Windows has nothing to open .log with. Neither
-        can be reported by letting the exception out - a --windowed build has
-        no console for it to land in - so it goes through problem(), which puts
-        it in the amber line of this very card, and into the log if there is
-        one to write to.
+        Its own message rather than the general one from _open(), because
+        there is something useful to say here: WHERE the file lives. The file
+        may genuinely not be there - writing the log can be switched off in
+        config.json, and anyone can delete it - and then knowing the folder is
+        the whole answer.
         """
-        try:
-            os.startfile(LOG_PATH)
-        except OSError as error:
-            log(f"Could not open the log: {error}")
-            problem("warn_log_open", path=str(LOG_PATH), error=str(error))
-            self._refresh_status()
+        self._open(LOG_PATH, "warn_log_open")
 
     def _quit(self):
         log("Quit by the user.")

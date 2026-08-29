@@ -260,7 +260,13 @@ DYNAMICKÁ KOREKCE HLASITOSTI
 
   Se zapnutou korekcí aplikace před odesláním zesílí impulz přesně
   o tolik, kolik mu Windows vezme. K reproduktoru pak dorazí to,
-  co je nastavené, ať je posuvník kdekoli.
+  co je nastavené.
+
+  Má to jednu mez: zesílit se dá nejvýš na plný rozsah. Když je
+  posuvník stažený opravdu hodně (u výchozího 1 % je to zhruba
+  pod 2 %), ani plný rozsah to nedožene a k reproduktoru dorazí
+  míň, než je nastavené. V logu je to poznat — stojí tam
+  „1.0 % -> 100 %".
 
   Hlasitější, než by byl při plné hlasitosti Windows, přitom
   nikdy nebude — takže impulz, který při plné hlasitosti neslyšíš,
@@ -413,14 +419,17 @@ keep_alive.log (kde leží, je v oddílu 10). Log je vždy anglicky.
   9. NASTAVENÍ V SOUBORU
 ----------------------------------------------------------------
 
-Soubor  config.json  v datové složce. Všechno kromě jedné položky
-se dá pohodlněji nastavit v okně; přímo v souboru se mění jen
-tohle a po změně je nutný restart aplikace:
+Soubor  config.json  v datové složce. Všechno kromě dvou položek
+se dá pohodlněji nastavit v okně; tyhle dvě se mění jen přímo
+v souboru a po změně je nutný restart aplikace:
 
   fade_s     jak dlouho trvá zesílení a zeslabení okraje impulzu
              (výchozí 0,05 s). Záměrně to není v okně — kdo tomu
              rozumí, najde to tady; kdo ne, tomu by to jen
              přidalo možnost zkazit si zvuk lupáním.
+
+  log        false = nezapisovat keep_alive.log (výchozí true).
+             V okně vypínač není schválně — viz oddíl 3.
 
 Ostatní klíče odpovídají položkám v okně.
 

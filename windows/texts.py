@@ -143,6 +143,7 @@ CS = {
     "warn_log_rotate": "Log přerostl svoji velikost a nepodařilo se založit "
                        "nový soubor, takže roste dál. ({error})",
     "warn_log_open": "Log se nepodařilo otevřít. Hledej ho v {path}. ({error})",
+    "warn_open": "Tohle se nepodařilo otevřít: {path} ({error})",
 
     # --- pause card ----------------------------------------------------
     "card_pause": "Dočasně pozastavit",
@@ -352,6 +353,7 @@ EN = {
                        "started, so it keeps growing. ({error})",
     "warn_log_open": "The log could not be opened. It lives in {path}. "
                      "({error})",
+    "warn_open": "This could not be opened: {path} ({error})",
 
     # --- pause card ----------------------------------------------------
     "card_pause": "Pause for a while",

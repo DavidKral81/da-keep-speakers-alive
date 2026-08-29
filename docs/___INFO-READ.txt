@@ -273,7 +273,13 @@ DYNAMIC VOLUME CORRECTION
 
   With the correction on, the app raises the pulse by exactly what
   Windows is about to take off it. What arrives at the speaker is
-  then what you set, wherever the slider happens to be.
+  then what you set.
+
+  There is one limit: it can only raise the pulse to full scale.
+  With the slider very low (below about 2 % for the default 1 %
+  setting) even full scale does not make it up, and less than what
+  you set reaches the speaker. The log shows it - the line then
+  reads "1.0 % -> 100 %".
 
   It never goes louder than the same setting would at full Windows
   volume - so a pulse you cannot hear at 100 % stays one you cannot
@@ -428,15 +434,19 @@ Look at "Status" in the window first, then at keep_alive.log
   9. SETTINGS IN THE FILE
 ----------------------------------------------------------------
 
-The file  config.json  in the data folder. Everything except one
-item is easier to set in the window; only this one is changed in
-the file, and the app has to be restarted afterwards:
+The file  config.json  in the data folder. Everything except two
+items is easier to set in the window; these two are changed in
+the file only, and the app has to be restarted afterwards:
 
   fade_s     how long the edges of the pulse take to fade in and
              out (0.05 s by default). Deliberately not in the
              window - whoever understands it will find it here,
              and whoever does not would only gain a way to make
              the pulse click.
+
+  log        false = do not write keep_alive.log (true by
+             default). There is no switch in the window on
+             purpose - see section 3.
 
 The other keys match the items in the window.
 

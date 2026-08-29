@@ -622,7 +622,7 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
              engine.retries, list(engine.error_items))
     saved_send, saved_refresh = engine.send, K.refresh_devices
     saved_targets, saved_cfg = K.targets, dict(K.CFG)
-    saved_muted = K.muted_devices
+    saved_muted = K.endpoint_state
     here = []                       # what the stand-in currently "sees"
     silent = []                     # ... which of those are silenced
     unsure = []                     # ... and which would not answer at all
@@ -633,11 +633,13 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
 
     def fake_muted():
         # None is Core Audio refusing to answer, which is NOT "nothing muted".
-        # Otherwise (what is silenced, what would not say) - three answers per
-        # device, and the third one is the whole reason this is a pair.
+        # Otherwise (what is silenced, what would not say, how loud each one
+        # is) - three answers per device for the mute alone, and the third one
+        # is the whole reason the first two are separate sets.
         if silent is None:
             return None
-        return ({K._key(n) for n in silent}, {K._key(n) for n in unsure})
+        return ({K._key(n) for n in silent}, {K._key(n) for n in unsure},
+                {K._key(n): 1.0 for n in here if n not in unsure})
 
     speakers = "Speakers (4 - USB Advanced Audio Device)"
     headphones = "Headphones (RODE NT-USB+)"
@@ -645,7 +647,7 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
     try:
         K.refresh_devices = lambda: True
         K.targets = fake_targets
-        K.muted_devices = fake_muted
+        K.endpoint_state = fake_muted
         K.CFG["active"] = True
         K.CFG["interval_s"] = 3600          # nothing is due for an hour
         engine.paused_until = 0.0
@@ -916,12 +918,150 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
               engine.muted is None, engine.muted)
     finally:
         engine.send, K.refresh_devices = saved_send, saved_refresh
-        K.targets, K.muted_devices = saved_targets, saved_muted
+        K.targets, K.endpoint_state = saved_targets, saved_muted
         (engine.seen, engine.muted, engine.scanned_at, engine.last_at,
          engine.woke_up, engine.pulse_now, engine.paused_until, engine.retries,
          engine.error_items) = saved
         engine.stop.clear()
         engine.wake.clear()
+        K.CFG.clear()
+        K.CFG.update(saved_cfg)
+
+
+# --------------------------------------------------- dynamic volume correction
+
+def test_the_volume_correction():
+    """The pulse has to arrive at the speaker at the level that was chosen.
+
+    Windows attenuates it like any other sound. Measured on this machine, an
+    output with its slider at 4 % came back at -31.7 dB - so a pulse set to
+    1 % of full scale left the machine at 0.026 %, which is little enough for
+    the speakers to sleep through the very thing meant to wake them.
+
+    Two properties are checked here, and the second one is what makes the
+    setting safe to switch on at all:
+
+      - with it on, what ARRIVES equals what was asked for
+      - it never sends more than the same setting would at full volume, so a
+        pulse the user cannot hear stays one
+    """
+    print("dynamic volume correction")
+    # --- the arithmetic on its own ------------------------------------
+    check("full volume changes nothing", K.corrected_amp(1.0, 1.0) == 1.0,
+          K.corrected_amp(1.0, 1.0))
+    check("half of it through means twice as much out",
+          K.corrected_amp(1.0, 0.5) == 2.0, K.corrected_amp(1.0, 0.5))
+    # An endpoint that would not answer has NO attenuation, which is not the
+    # same as an attenuation of none. Guessing here would raise the pulse on
+    # the strength of a number nobody read.
+    check("an unknown attenuation leaves the setting alone",
+          K.corrected_amp(1.0, None) == 1.0, K.corrected_amp(1.0, None))
+    check("and so does a nonsensical one", K.corrected_amp(1.0, 0.0) == 1.0,
+          K.corrected_amp(1.0, 0.0))
+    check("it never asks for more than full scale",
+          K.corrected_amp(1.0, 1e-6) == K.AMP_CEILING,
+          K.corrected_amp(1.0, 1e-6))
+    # The other direction: a gain above 1 would mean Windows making the pulse
+    # louder. It does not - but dividing by such a figure would quietly send
+    # LESS than was asked for, which is the failure this setting exists to fix.
+    check("and never for less than the setting itself",
+          K.corrected_amp(2.0, 1.5) == 2.0, K.corrected_amp(2.0, 1.5))
+
+    # --- what the speaker actually gets --------------------------------
+    engine = K.ENGINE
+    saved_play, saved_targets = K.play, K.targets
+    saved_state, saved_cfg = K.endpoint_state, dict(K.CFG)
+    saved_engine = (engine.gains, list(engine.error_items), engine.retries,
+                    engine.seen, engine.muted)
+    quiet_speaker = "Speakers (4 - USB Advanced Audio Device)"
+    loud_speaker = "Headphones (RODE NT-USB+)"
+    unknown_speaker = "Monitor (AMD High Definition Audio Device)"
+    # 0.025971 is the real reading from this machine's slider at 4 %.
+    gains = {K._key(quiet_speaker): 0.025971, K._key(loud_speaker): 1.0}
+    played = []
+
+    def record(device, wave):
+        played.append((device["name"], float(np.max(np.abs(wave)))))
+
+    def three_devices(devices=None):
+        return [{"name": name, "index": i, "samplerate": 48000, "channels": 2}
+                for i, name in enumerate((quiet_speaker, loud_speaker,
+                                          unknown_speaker))], []
+
+    try:
+        K.play = record
+        K.targets = three_devices
+        K.endpoint_state = lambda: (set(), set(), dict(gains))
+        K.CFG["active"] = True
+        K.CFG["log"] = True             # the redirected file, not the app's
+        K.CFG["amp_percent"] = 1.0
+        K.CFG["freq_hz"] = 20
+        K.CFG["duration_s"] = 0.4
+
+        K.CFG["amp_correction"] = False
+        played.clear()
+        engine.send(" (test)")
+        peaks = dict(played)
+        check("switched off, every device gets exactly what was set",
+              all(abs(p - 0.01) < 1e-6 for p in peaks.values()),
+              {n: round(p, 5) for n, p in peaks.items()})
+
+        K.CFG["amp_correction"] = True
+        played.clear()
+        engine.send(" (test)")
+        peaks = dict(played)
+        quiet, loud = peaks[quiet_speaker], peaks[loud_speaker]
+        check("switched on, the quiet output is raised",
+              quiet > 0.01 * 30, f"{quiet:.5f}")
+        check("and the one at full volume is left alone",
+              abs(loud - 0.01) < 1e-6, f"{loud:.5f}")
+        # The whole point, stated as the thing that has to be true: after
+        # Windows has done its bit, both arrive at the level that was set.
+        arrives_quiet = quiet * gains[K._key(quiet_speaker)]
+        arrives_loud = loud * gains[K._key(loud_speaker)]
+        check("what ARRIVES is the same 1 % on both",
+              abs(arrives_quiet - 0.01) < 1e-4
+              and abs(arrives_loud - 0.01) < 1e-4,
+              f"quiet {arrives_quiet:.5f}, loud {arrives_loud:.5f}")
+        check("and never louder than the setting at full volume",
+              arrives_quiet <= 0.01 + 1e-9 and arrives_loud <= 0.01 + 1e-9,
+              f"quiet {arrives_quiet:.5f}, loud {arrives_loud:.5f}")
+        # A device Core Audio said nothing about must be left exactly as set -
+        # correcting by a figure that was never read is worse than not
+        # correcting at all.
+        check("a device with no reading is not corrected by guesswork",
+              abs(peaks[unknown_speaker] - 0.01) < 1e-6,
+              f"{peaks[unknown_speaker]:.5f}")
+
+        # The log has to say what LEFT the machine. With only the setting in
+        # it, a pulse sent at 38 % would be recorded as the 1 % in the window -
+        # and the next person looking into "the speakers still sleep" would be
+        # reading about a pulse that never happened.
+        written = K.LOG_PATH.read_text(encoding="utf-8").splitlines()[-1]
+        check("and the log says what really went out, not just the setting",
+              "1.0 % -> " in written and "%" in written.split("->")[1],
+              written)
+
+        # A reading that fails must drop the attenuations rather than keep
+        # them: they are a measurement of a moment, and correcting by a stale
+        # one raises the pulse on the strength of a slider position that may
+        # have moved minutes ago.
+        K.endpoint_state = lambda: None
+        engine.gains = dict(gains)
+        engine.note_the_mute({K._key(quiet_speaker)})
+        check("a failed reading forgets the attenuations instead of aging them",
+              engine.gains == {}, engine.gains)
+        played.clear()
+        engine.send(" (test)")
+        peaks = dict(played)
+        check("so a pulse during that failure goes out exactly as set",
+              all(abs(p - 0.01) < 1e-6 for p in peaks.values()),
+              {n: round(p, 5) for n, p in peaks.items()})
+    finally:
+        K.play, K.targets = saved_play, saved_targets
+        K.endpoint_state = saved_state
+        (engine.gains, engine.error_items, engine.retries, engine.seen,
+         engine.muted) = saved_engine
         K.CFG.clear()
         K.CFG.update(saved_cfg)
 
@@ -1106,31 +1246,34 @@ def test_one_endpoint_that_will_not_answer():
     to count as SILENT. Dropping it out of the set instead would look exactly
     like it becoming audible, and would pulse at a device nobody touched.
 
-    Talks to the real Core Audio of this machine - only _is_silent() is stood
-    in for, so the walk itself is the real one. Asked through muted_devices()
-    rather than _read_silenced() on purpose: that is the door the app uses, and
-    a broken walk then shows up as a red check rather than as a stack trace.
+    Talks to the real Core Audio of this machine - only _endpoint_volume() is
+    stood in for, so the walk itself is the real one. Asked through
+    endpoint_state() rather than _read_endpoints() on purpose: that is the door
+    the app uses, and a broken walk then shows up as a red check rather than as
+    a stack trace.
     """
     print("one endpoint that will not answer")
-    saved = K._is_silent
+    saved = K._endpoint_volume
     try:
         # Counted by how many endpoints the walk really visits, NOT by how many
         # keys come back: _key() drops the port number, so two outputs of the
         # same model collapse into one key and a count taken from the set would
         # go red over working code.
         walked = []
-        K._is_silent = lambda device: walked.append(device) or True
-        answer = K.muted_devices()
+        K._endpoint_volume = lambda device: (walked.append(device), (True, 1.0))[1]
+        answer = K.endpoint_state()
         check("Core Audio answered at all on this machine", answer is not None,
               repr(answer))
         if answer is None:
             return                          # nothing further can be told here
-        everything, unsure = answer
+        everything, unsure, gains = answer
         endpoints = len(walked)
         check("the machine has endpoints to walk at all", endpoints > 0,
               endpoints)
         check("and none of them were unreadable to start with", unsure == set(),
               sorted(unsure))
+        check("every readable endpoint came back with an attenuation",
+              set(gains) == everything, sorted(gains))
 
         asked = []
 
@@ -1138,10 +1281,10 @@ def test_one_endpoint_that_will_not_answer():
             asked.append(device)
             if len(asked) == 1:
                 raise OSError("pretend this endpoint is being unplugged")
-            return True
+            return True, 1.0
 
-        K._is_silent = refuses_the_first
-        silent_after, unsure_after = K.muted_devices()
+        K._endpoint_volume = refuses_the_first
+        silent_after, unsure_after, gains_after = K.endpoint_state()
         check("a refusing endpoint does not throw away the whole answer",
               silent_after | unsure_after == everything,
               sorted(silent_after | unsure_after))
@@ -1150,6 +1293,12 @@ def test_one_endpoint_that_will_not_answer():
               f"silent={sorted(silent_after)} unsure={sorted(unsure_after)}")
         check("and the walk went on past it, it did not stop there",
               len(asked) == endpoints, f"{len(asked)} of {endpoints}")
+        # An unknown attenuation must stay unknown. A stand-in figure here
+        # would be indistinguishable from a real reading of full volume, and
+        # the correction would then "put back" something nobody measured.
+        check("and it is left OUT of the attenuations rather than guessed",
+              not (unsure_after & set(gains_after)),
+              f"unsure={sorted(unsure_after)} gains={sorted(gains_after)}")
 
         # The counter-case: without a name there is no way to say which device
         # the trouble belongs to, so the whole reading has to admit it failed.
@@ -1158,11 +1307,22 @@ def test_one_endpoint_that_will_not_answer():
             K._friendly_name = lambda device: (_ for _ in ()).throw(
                 OSError("pretend the name cannot be read"))
             check("but a nameless endpoint makes the whole reading unknown",
-                  K.muted_devices() is None, K.muted_devices())
+                  K.endpoint_state() is None, K.endpoint_state())
         finally:
             K._friendly_name = saved_name
+
+        # The real thing, unmocked: the attenuation has to be a factor between
+        # nothing and everything. A reading outside that range would either
+        # silence the pulse or multiply it without limit.
+        K._endpoint_volume = saved
+        live = K.endpoint_state()
+        if live is not None:
+            _, _, live_gains = live
+            check("the real attenuations are factors between 0 and 1",
+                  all(0.0 <= g <= 1.0 for g in live_gains.values()),
+                  {n: round(g, 4) for n, g in live_gains.items()})
     finally:
-        K._is_silent = saved
+        K._endpoint_volume = saved
 
 
 def main():
@@ -1172,6 +1332,7 @@ def main():
                  test_a_pause_runs_in_real_time,
                  test_the_engine_loop_does_its_job,
                  test_a_speaker_plugged_in_gets_the_pulse_at_once,
+                 test_the_volume_correction,
                  test_one_endpoint_that_will_not_answer,
                  test_config_encoding, test_problems, test_config_template,
                  test_texts):

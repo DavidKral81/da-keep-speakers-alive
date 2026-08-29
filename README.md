@@ -77,11 +77,19 @@ An icon next to the clock, and a settings window behind it.
   the choice survives replugging the USB into another port. One that is not
   currently connected stays in the list, marked as such.
 - **How often** — 30 s to 15 minutes.
-- **What the pulse sounds like** — frequency, volume, length, plus a
+- **What the pulse sounds like** — frequency, length, volume, plus a
   **Try a pulse** button with a progress bar. The bar exists because the pulse
   is inaudible on purpose: without it, a working app and a broken one look
   exactly the same.
+- **Dynamic volume correction** — optional. Windows attenuates the pulse just
+  as it attenuates music, so with the volume slider low the speaker may never
+  notice it (measured: a slider at 4 % is −31.7 dB, which turns a 1 % pulse
+  into 0.026 % of full scale). Switched on, the app puts back exactly what
+  Windows takes off — never more, so a pulse you cannot hear at full volume
+  stays one you cannot hear.
 - **Start when I log in to Windows** — registers a task in Task Scheduler.
+- **Open the log** — a link straight to `keep_alive.log`, next to the switch
+  that writes it.
 - **Pause for a while** — for when you need real silence, recording audio, say.
   It switches itself back on afterwards.
 - **Czech / English**, switched live by the two flags in the top right corner.

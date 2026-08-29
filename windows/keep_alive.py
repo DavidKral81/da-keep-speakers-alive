@@ -52,6 +52,25 @@ from version import VERSION, PROJECT_URL
 
 APP_NAME = "Da Keep Speakers Alive"
 
+# A console on a Czech Windows is cp1250, and "Sluchátka (RØDE NT-USB+)" does
+# not fit in it: print() then raises UnicodeEncodeError instead of printing.
+# That takes down whatever was running - and it does it on the path that
+# matters most, because a device name reaches the output mostly when something
+# is being reported about that device. Unprintable characters become "?"
+# instead; the log file is UTF-8 and keeps the real name either way.
+#
+# Anything importing this module inherits the setting, which is deliberate:
+# the tests print device names too, and a test that dies of an encoding error
+# looks like a crash rather than the failed check it really is.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors="replace")
+    except (AttributeError, OSError, ValueError):
+        # Not a real stream to configure. A --windowed build has none at all
+        # (sys.stdout is None), and a redirected pipe may refuse - neither is
+        # worth stopping for, since the only thing lost is nicer console text.
+        pass
+
 HERE = Path(__file__).resolve().parent
 
 # Where the data belongs (settings, log):
@@ -94,6 +113,11 @@ DEFAULTS = {
     "interval_s": 180,
     "freq_hz": 20,
     "amp_percent": 1.0,
+    # Raise the pulse by whatever the Windows volume slider takes off it, so
+    # the speaker hears amp_percent whatever the slider says. Off by default:
+    # it changes what leaves the machine, and a setting that does that should
+    # be the user's own doing rather than something an update switched on.
+    "amp_correction": False,
     "duration_s": 0.4,
     # Not in the window on purpose: without a fade the burst starts and ends
     # with a step, and a step is broadband noise - a click you hear far better
@@ -357,26 +381,32 @@ def targets(devices=None):
     return chosen, missing
 
 
-# ------------------------------------------------ what Windows has silenced
+# --------------------------------------- what Windows does to the sound first
 #
-# PortAudio knows nothing about the mute switch: a muted output stays in its
-# list under the same name, with the same channels, and accepts the pulse
-# without a murmur - while the speakers sleep through it exactly as if nothing
-# had been sent. Un-muting is therefore the same moment as plugging in, and
-# deserves the same pulse.
+# PortAudio knows nothing about the volume slider or the mute switch: a muted
+# output stays in its list under the same name, with the same channels, and
+# accepts the pulse without a murmur - while the speakers sleep through it
+# exactly as if nothing had been sent. Un-muting is therefore the same moment
+# as plugging in, and deserves the same pulse.
 #
-# The switch lives in Windows Core Audio, so reading it means calling COM by
-# hand. That is the hundred lines below, and it buys not having to put pycaw
-# and comtypes into the installer for two flags.
+# The same slider matters while the pulse IS getting through. Windows attenuates
+# it like any other sound, so a pulse asked to be 1 % of full scale leaves the
+# machine at 1 % OF THE SLIDER - and at a low setting that is little enough for
+# the speakers to sleep straight through it. That is what the amp_correction
+# setting undoes; see corrected_amp().
+#
+# Both live in Windows Core Audio, so reading them means calling COM by hand.
+# That is the hundred lines below, and it buys not having to put pycaw and
+# comtypes into the installer for three numbers.
 #
 # Volume at zero counts as silenced as well: it stops the pulse just as
 # completely, and someone sliding it back up expects what un-muting gives.
 #
-# Measured here on 27.08.2026, from inside the app rather than a prototype:
-# one full look - every active output, its name, its mute flag and its level -
-# takes 3.4 ms (median of 20, max 6.5). It rides along with the device scan,
-# which was measured at 52 ms in the same run, so it adds about 6 % to
-# something that already runs once every SCAN_S and needs no timer of its own.
+# Measured here, from inside the app rather than a prototype: one full look -
+# every active output, its name, its mute flag, its level and its attenuation -
+# takes 6.6 ms (median of 20, min 5.0, max 10.0; four outputs on this machine,
+# 29.08.2026). It rides along with the device scan, measured at 52 ms, so it
+# runs once every SCAN_S and needs no timer of its own.
 
 _ole32 = ctypes.windll.ole32
 
@@ -420,7 +450,7 @@ _IID_VOLUME = _guid("{5CDF2C82-841E-4546-9722-0CF74078229A}")
 _PKEY_FRIENDLY_NAME = _PROPERTYKEY(
     _guid("{A45C254E-DF1C-4EFD-8020-67D146A850E0}"), 14)
 
-_mute_problem = None                # the last failure, so the log gets it once
+_endpoint_problem = None                # the last failure, so the log gets it once
 
 
 def _slot(iface, index, restype, argtypes):
@@ -442,7 +472,7 @@ def _com(iface, index, argtypes, *args):
 
     Never silenced: a failed call means the mute state is unknown, and the one
     thing that must not happen is answering "not muted" to a question that was
-    never really asked - see muted_devices().
+    never really asked - see endpoint_state().
     """
     result = _slot(iface, index, ctypes.c_long, argtypes)(iface, *args)
     if result != _S_OK:
@@ -473,8 +503,21 @@ def _friendly_name(device):
         _release(store)
 
 
-def _is_silent(device):
-    """True when this output is muted, or turned all the way down."""
+def _endpoint_volume(device):
+    """(silent, gain) for one output: is it stopped, and how much is left.
+
+    `silent` is True when the output is muted or turned all the way down -
+    either way the pulse plays into nothing.
+
+    `gain` is the factor Windows multiplies the samples by before they reach
+    the speaker, 0.0 to 1.0. It comes from GetMasterVolumeLevel, which answers
+    in DECIBELS, and not from the scalar next to it: the scalar is the slider
+    position, which Microsoft documents as "audio-tapered" - shaped to how
+    loud it sounds, not to what it does to the signal. Half a slider is not
+    half an amplitude. Decibels are defined as the attenuation itself, so
+    10 ** (dB / 20) is the number the samples actually get multiplied by, and
+    that is the one worth undoing.
+    """
     volume = ctypes.c_void_p()
     _com(device, 3, (ctypes.POINTER(_GUID), wintypes.DWORD, ctypes.c_void_p,
                      ctypes.POINTER(ctypes.c_void_p)),
@@ -484,18 +527,24 @@ def _is_silent(device):
         muted = wintypes.BOOL()
         _com(volume, 15, (ctypes.POINTER(wintypes.BOOL),),
              ctypes.byref(muted))                    # GetMute
-        if muted.value:
-            return True
         level = ctypes.c_float()
         _com(volume, 9, (ctypes.POINTER(ctypes.c_float),),
              ctypes.byref(level))                    # GetMasterVolumeLevelScalar
-        return level.value <= 0.0
+        decibels = ctypes.c_float()
+        _com(volume, 8, (ctypes.POINTER(ctypes.c_float),),
+             ctypes.byref(decibels))                 # GetMasterVolumeLevel
+        silent = bool(muted.value) or level.value <= 0.0
+        # Handed back as measured, not tidied up. Keeping a measurement honest
+        # is worth more than making it convenient; the range it has to be in
+        # for the arithmetic to make sense is enforced where the arithmetic
+        # happens, in corrected_amp().
+        return silent, 10.0 ** (decibels.value / 20.0)
     finally:
         _release(volume)
 
 
-def _read_silenced():
-    """Ask Core Audio which active outputs are silent. Raises on any failure."""
+def _read_endpoints():
+    """Ask Core Audio about every active output. Raises on any failure."""
     enumerator = ctypes.c_void_p()
     result = _ole32.CoCreateInstance(
         ctypes.byref(_CLSID_ENUMERATOR), None, _CLSCTX_ALL,
@@ -512,7 +561,7 @@ def _read_silenced():
             count = wintypes.UINT()
             _com(collection, 3, (ctypes.POINTER(wintypes.UINT),),
                  ctypes.byref(count))                # GetCount
-            silent, unsure = set(), set()
+            silent, unsure, gains = set(), set(), {}
             for position in range(count.value):
                 device = ctypes.c_void_p()
                 _com(collection, 4, (wintypes.UINT,
@@ -532,8 +581,10 @@ def _read_silenced():
                     # very thing the previous line guards against.
                     name = _key(_friendly_name(device))
                     try:
-                        if _is_silent(device):
+                        quiet, gain = _endpoint_volume(device)
+                        if quiet:
                             silent.add(name)
+                        gains[name] = gain
                     except OSError:
                         # One endpoint refusing to answer must not throw away
                         # what the others said - a device being unplugged
@@ -541,23 +592,34 @@ def _read_silenced():
                         # set: calling it MUTED was wrong in the other
                         # direction, because it then dropped out again on the
                         # next good reading and looked like an un-mute.
+                        #
+                        # It gets no entry in `gains` either, rather than a
+                        # made-up one: an unknown attenuation must leave the
+                        # pulse exactly as the user set it, and a guess of 1.0
+                        # here would be indistinguishable from a real full
+                        # volume reading.
                         unsure.add(name)
                 finally:
                     _release(device)
-            return silent, unsure
+            return silent, unsure, gains
         finally:
             _release(collection)
     finally:
         _release(enumerator)
 
 
-def muted_devices():
-    """(outputs Windows is silencing, outputs that would not say), or None.
+def endpoint_state():
+    """(silenced, would not say, gain per device), or None if nothing could be
+    read at all.
 
-    Three answers per device, not two: muted, not muted, and could not tell.
-    Folding the third into either of the others is wrong in both directions -
-    calling it muted makes it look un-muted on the next good reading, and
-    calling it audible pulses at it straight away. It gets its own set.
+    One look, three answers - because they come from the same walk over the
+    endpoints and asking twice would let them disagree about the same device.
+
+    Three answers per device for the mute, not two: muted, not muted, and could
+    not tell. Folding the third into either of the others is wrong in both
+    directions - calling it muted makes it look un-muted on the next good
+    reading, and calling it audible pulses at it straight away. It gets its own
+    set.
 
     None for the whole thing is not an empty set either. A failed read that
     answered "nothing is muted" would look exactly like every muted device
@@ -569,7 +631,7 @@ def muted_devices():
     same string for all four outputs, so the pairing is a formality - but the
     port number Windows writes into the name is not, and _key() drops it.
     """
-    global _mute_problem
+    global _endpoint_problem
     started = _ole32.CoInitializeEx(None, _COINIT_MULTITHREADED)
     # RPC_E_CHANGED_MODE says this thread already lives in a different
     # apartment. COM works either way; it only must not be uninitialised here,
@@ -584,8 +646,8 @@ def muted_devices():
     # would leak an apartment there.
     ours = started in (_S_OK, _S_FALSE)
     try:
-        answer = _read_silenced()
-        _mute_problem = None        # back in working order; log the next fault
+        answer = _read_endpoints()
+        _endpoint_problem = None        # back in working order; log the next fault
         return answer
     except Exception as error:      # any COM failure at all
         # Not silenced, and not repeated either: this runs every SCAN_S, so a
@@ -593,9 +655,9 @@ def muted_devices():
         # that CHANGED is logged, compared as text - two exceptions with the
         # same wording are still different objects.
         text = f"{type(error).__name__}: {error}"
-        if text != _mute_problem:
-            log(f"Could not read the mute state: {text}")
-            _mute_problem = text
+        if text != _endpoint_problem:
+            log(f"Could not read what Windows does to the sound: {text}")
+            _endpoint_problem = text
         return None
     finally:
         if ours:
@@ -604,6 +666,45 @@ def muted_devices():
 
 def periods(freq, duration):
     return duration * float(freq)
+
+
+# The loudest pulse the correction below is allowed to build. Full scale, so
+# nothing is thrown away: the point of the correction is to arrive at the
+# speaker with the level the user chose, and anything less than the whole range
+# would cap that before it had to be capped.
+AMP_CEILING = 100.0
+
+
+def corrected_amp(amp_percent, gain):
+    """The amplitude to generate so the SPEAKER hears `amp_percent`.
+
+    Windows attenuates the pulse exactly as it attenuates music. At a slider
+    setting of a percent or two that leaves so little of it that the speakers
+    can sleep straight through a pulse the app believes it sent - which is the
+    whole reason this exists.
+
+    `gain` is what Windows will multiply by (see _endpoint_volume). Dividing by
+    it puts back exactly that much and no more, so the result never leaves the
+    machine louder than the same setting would at full volume: a pulse the user
+    cannot hear at 100 % stays inaudible at 10 %. That is the property that
+    makes this safe to switch on, and it is worth keeping in mind before
+    "improving" the arithmetic here.
+
+    An unknown gain (None - the endpoint would not answer) leaves the setting
+    alone rather than guessing. Capped at AMP_CEILING, which is reached when
+    Windows is turned down so far that even full scale cannot make it up; the
+    log says what really went out, so a capped pulse is visible rather than
+    silently short.
+
+    A gain above 1 would mean Windows making the pulse LOUDER, which it does
+    not do - but dividing by it would quietly send less than the user asked
+    for, so it is floored here rather than trusted to whoever measured it.
+    This function is the only place the number turns into an amplitude, which
+    makes it the right place to keep that from going wrong.
+    """
+    if not gain or gain <= 0.0:
+        return float(amp_percent)
+    return min(AMP_CEILING, float(amp_percent) / min(1.0, float(gain)))
 
 
 def make_pulse(freq, amp_percent, duration, fade, samplerate):
@@ -691,8 +792,8 @@ class Engine(threading.Thread):
     # earlier run of twelve gave 64 ms, so take it as "tens of milliseconds",
     # not as a constant). Every second would be 5 % of a core spent on an app
     # that is meant to be unnoticeable. Ten seconds is nothing next to an
-    # interval counted in minutes, and costs about 0.5 %. Reading the mute
-    # state rides along with it and adds 3.4 ms.
+    # interval counted in minutes, and costs about 0.5 %. Reading what Windows
+    # does to the sound rides along with it and adds 6.6 ms.
     SCAN_S = 10
 
     def __init__(self):
@@ -741,6 +842,11 @@ class Engine(threading.Thread):
         # Audio would not say. Either way the next look only fills it in, so a
         # device that was muted all along does not earn a pulse for it.
         self.muted = None
+        # How much of the pulse Windows lets through, per device key, from the
+        # same look that filled `muted` in. A device that is not in here has no
+        # known attenuation, which is not the same as none: corrected_amp()
+        # leaves the setting alone rather than inventing a figure.
+        self.gains = {}
         self.scanned_at = 0.0           # monotonic, when the list was last read
 
     # --- what the window and the tray ask about ------------------------
@@ -856,10 +962,24 @@ class Engine(threading.Thread):
         # left the bar finished while the speaker was still sounding.
         self.playing_span = (duration + BUFFER_S) * len(chosen)
         self.playing_from = time.monotonic()
+        asked = float(CFG.get("amp_percent", 1.0))
+        # What each device was really given. Only filled in when the correction
+        # actually changed something, so the log can say so without having to
+        # work it out again from settings that may have moved on since.
+        raised = []
         try:
             for device in chosen:
+                amp = asked
+                if CFG.get("amp_correction", False):
+                    # Per device, not once for the pulse: the volume slider is
+                    # a property of the endpoint, so two chosen speakers can
+                    # need entirely different corrections.
+                    amp = corrected_amp(asked, self.gains.get(
+                        _key(device["name"])))
+                    if amp != asked:
+                        raised.append(amp)
                 wave = make_pulse(CFG.get("freq_hz", 20),
-                                  CFG.get("amp_percent", 1.0),
+                                  amp,
                                   duration,
                                   CFG.get("fade_s", 0.05),
                                   device["samplerate"])
@@ -886,8 +1006,20 @@ class Engine(threading.Thread):
             #
             # Driven by self.partly, the same flag the other three read, so
             # there is one answer to "did anything play" rather than four.
-            settings = (f"({CFG.get('freq_hz')} Hz, {CFG.get('amp_percent')} %, "
-                        f"{duration} s)")
+            # The volume in the log is what LEFT the machine, not only what was
+            # asked for. With the correction on those are different numbers,
+            # and the asked-for one alone would make a pulse that went out at
+            # full scale look like the 1 % in the settings - exactly the kind
+            # of gap between the record and the event that sent the last
+            # investigation the wrong way. Both are shown: the setting, and
+            # what it became (a range when the devices needed different
+            # corrections).
+            volume = f"{asked} %"
+            if raised:
+                low, high = min(raised), max(raised)
+                volume += (f" -> {low:.3g} %" if low == high
+                           else f" -> {low:.3g}-{high:.3g} %")
+            settings = f"({CFG.get('freq_hz')} Hz, {volume}, {duration} s)"
             trouble = "; ".join(tx_en(key, **kw) for key, kw in problems)
             if self.partly:
                 log(f"Pulse{reason} -> {', '.join(played)} {settings}"
@@ -1011,10 +1143,20 @@ class Engine(threading.Thread):
         else. Only a device that was known muted and is now known not to be
         drops out of the set.
         """
-        answer = muted_devices()
+        answer = endpoint_state()
         if answer is None:
+            # The mute watch is kept (see above), the attenuations are NOT.
+            # They are not a watch for a change; they are a measurement used
+            # the moment a pulse goes out, and one nobody has been able to
+            # check since is worse than none - correcting by it would raise the
+            # pulse on the strength of a reading that may be minutes stale.
+            # Empty means "unknown", which corrected_amp() leaves alone.
+            self.gains = {}
             return None
-        silenced, could_not_tell = answer
+        silenced, could_not_tell, gains = answer
+        # Replaced outright, never merged, for the same reason: a device that
+        # dropped out of the answer has no attenuation any more.
+        self.gains = gains
         known = self.muted or set()
         before, self.muted = self.muted, ((present & silenced)
                                           | (present & could_not_tell & known))
@@ -1066,6 +1208,10 @@ class Engine(threading.Thread):
                     # both lists makes the next scan fill them in silently.
                     self.seen = None
                     self.muted = None
+                    # And the attenuations with them: they describe a moment,
+                    # and by the time this is switched back on the slider may
+                    # have been anywhere. send() reads them fresh anyway.
+                    self.gains = {}
                 elif self.woke_up or due <= 0:
                     # Being very late means the process was frozen - the
                     # machine was asleep. The speakers slept through it too,
@@ -1934,19 +2080,30 @@ class Settings:
                      lambda v: self._set("interval_s", v))
 
         # --- 4. signal -------------------------------------------------
+        # Frequency, then length, then volume - and the volume last because the
+        # correction switch belongs directly under it. A checkbox under a
+        # drop-down it has nothing to do with reads as if it belonged to that
+        # one instead.
         card = self._card(tx("card_signal"), tx("card_signal_desc"), 1)
         self._select(card, tx("lbl_freq"),
                      [(tx("opt_hz", v=number(v)), v) for v in self.FREQS],
                      CFG.get("freq_hz", 20),
                      lambda v: self._set("freq_hz", v, warn=True))
-        self._select(card, tx("lbl_amp"),
-                     [(tx("opt_percent", v=number(v)), v) for v in self.AMPS],
-                     CFG.get("amp_percent", 1.0),
-                     lambda v: self._set("amp_percent", v))
         self._select(card, tx("lbl_duration"),
                      [(tx("opt_sec", v=number(v)), v) for v in self.DURATIONS],
                      CFG.get("duration_s", 0.4),
                      lambda v: self._set("duration_s", v, warn=True))
+        self._select(card, tx("lbl_amp"),
+                     [(tx("opt_percent", v=number(v)), v) for v in self.AMPS],
+                     CFG.get("amp_percent", 1.0),
+                     lambda v: self._set("amp_percent", v))
+        self._switch(card, tx("sw_amp_correction"), "amp_correction")
+        # Indented to line up with the label beside the mark, so it reads as
+        # this switch's explanation and not as a new paragraph in the card.
+        tk.Label(card, text=tx("sw_amp_correction_desc"), bg=self.CARD,
+                 fg=self.DIM, font=("Segoe UI", 9), justify="left",
+                 wraplength=self.CARD_WIDTH - 70).pack(
+                     anchor="w", padx=(marks.SIZE + 9, 0), pady=(0, 2))
         self.warn_label = tk.Label(card, text="", bg=self.CARD, fg="#ffcf8a",
                                    font=("Segoe UI", 9), justify="left",
                                    wraplength=self.CARD_WIDTH - 40)
@@ -1961,6 +2118,11 @@ class Settings:
         self.sw_autostart = self._switch(card, tx("sw_autostart"), None,
                                          autostart_enabled, autostart_set)
         self._switch(card, tx("sw_log"), "log")
+        # The log is the only record of what the app really did, and it lives
+        # in %APPDATA% where nobody stumbles over it. Right under the switch
+        # that writes it, because that is where someone goes looking.
+        self._link(card, tx("link_log"),
+                   self._open_log).pack(anchor="w", pady=(6, 0))
         # Where the problems from problem() surface. Amber like the pulse
         # warning above, because it is the same kind of message: nothing is
         # broken beyond repair, but the user has to know. Filled in by
@@ -2092,6 +2254,25 @@ class Settings:
 
     def _open_project(self):
         os.startfile(PROJECT_URL)
+
+    def _open_log(self):
+        """Open keep_alive.log in whatever Windows uses for text files.
+
+        A click that does nothing is the worst answer here, and there are two
+        ordinary ways to get one: the file is not there yet (writing the log
+        has been switched off since before the first line was written, or
+        somebody deleted it), or Windows has nothing to open .log with. Neither
+        can be reported by letting the exception out - a --windowed build has
+        no console for it to land in - so it goes through problem(), which puts
+        it in the amber line of this very card, and into the log if there is
+        one to write to.
+        """
+        try:
+            os.startfile(LOG_PATH)
+        except OSError as error:
+            log(f"Could not open the log: {error}")
+            problem("warn_log_open", path=str(LOG_PATH), error=str(error))
+            self._refresh_status()
 
     def _quit(self):
         log("Quit by the user.")

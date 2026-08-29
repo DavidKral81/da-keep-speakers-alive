@@ -24,6 +24,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "installer"))
 import installer as I
 
+# Every line here prints a path, and the project lives under "Můj disk" on a
+# machine whose console is cp1250. A path that cannot be encoded makes print()
+# raise, and the run then looks like a crash instead of the failed check it is.
+# Same reason as in keep_alive.py, which this test does not import.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors="replace")
+    except (AttributeError, OSError, ValueError):
+        pass        # not a real stream - only prettier console text is lost
+
 TEMP_DIR = Path(os.environ.get("TEMP", tempfile.gettempdir())) / "dksa-install-test"
 failures = []
 

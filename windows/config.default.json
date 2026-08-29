@@ -21,6 +21,9 @@
   "_amp_percent": "Volume in % of full scale. 1 % = -40 dBFS.",
   "amp_percent": 1.0,
 
+  "_amp_correction": "Raise the pulse by what the Windows volume takes off it.",
+  "amp_correction": false,
+
   "_duration_s": "Pulse length. Must fit at least two full waves of freq_hz.",
   "duration_s": 0.4,
 

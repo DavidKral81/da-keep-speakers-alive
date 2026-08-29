@@ -344,6 +344,77 @@ def main():
         step("the tray copes with every state, not just 'ok'", tray_every_state)
         step("the device list can be reloaded", settings._rescan)
 
+        def texts_in_the_window():
+            """Every label the window really carries, with its position."""
+            found = []
+
+            def walk(widget):
+                for child in widget.winfo_children():
+                    try:
+                        text = child.cget("text")
+                    except (tk.TclError, TypeError):
+                        text = ""
+                    if text:
+                        found.append((child.winfo_rooty(), str(text)))
+                    walk(child)
+            walk(settings.win)
+            return found
+
+        def signal_card_in_order():
+            """Frequency, length, volume - and the switch under the volume.
+
+            The order is a decision, not a coincidence: the correction switch
+            explains what the volume above it does, and a checkbox sitting
+            under a drop-down it has nothing to do with reads as if it
+            belonged to that one. Read off the built window rather than the
+            source, so moving a line without meaning to shows up here.
+            """
+            wanted = [K.tx("lbl_freq"), K.tx("lbl_duration"), K.tx("lbl_amp"),
+                      K.tx("sw_amp_correction")]
+            placed = [(y, text) for y, text in texts_in_the_window()
+                      if text in wanted]
+            order = [text for _, text in sorted(placed)]
+            assert order == wanted, order
+            # and the explanation under it, or the switch is a riddle
+            assert any(K.tx("sw_amp_correction_desc") in text
+                       for _, text in texts_in_the_window()), \
+                "the correction switch has no explanation under it"
+        step("the signal card reads frequency, length, volume",
+             signal_card_in_order)
+
+        def the_log_can_be_opened():
+            """The link under "write a log file" - both ways it can go.
+
+            A link that quietly does nothing is the worst outcome here, and it
+            is the likely one: a --windowed build has no console, so an
+            exception from os.startfile would vanish without trace. Windows is
+            stood in for, so no editor opens during a test run.
+            """
+            saved_start = K.os.startfile
+            saved_problems = list(K.PROBLEMS)
+            try:
+                asked = []
+                K.os.startfile = lambda path: asked.append(path)
+                settings._open_log()
+                assert asked == [K.LOG_PATH], asked
+
+                def refuses(path):
+                    raise OSError("pretend the log is not there yet")
+                K.os.startfile = refuses
+                settings._open_log()
+                root.update()
+                assert any(key == "warn_log_open" for key, _ in K.PROBLEMS), \
+                    K.PROBLEMS
+                assert K.tx("warn_log_open", path="x", error="y")[:20] and \
+                    settings.problem_label["text"], \
+                    "a log that will not open is never mentioned to the user"
+            finally:
+                K.os.startfile = saved_start
+                K.PROBLEMS[:] = saved_problems
+                settings._refresh_status()
+        step("the log opens, and says so when it cannot",
+             the_log_can_be_opened)
+
         def two_columns_without_gaps():
             """Wide window: the cards must sit right under one another.
 

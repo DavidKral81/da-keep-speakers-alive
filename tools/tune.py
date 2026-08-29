@@ -32,6 +32,16 @@ import time
 import numpy as np
 import sounddevice as sd
 
+# --list prints device names, and a Czech console is cp1250: "Sluchátka (RØDE
+# NT-USB+)" cannot be encoded there and print() raises instead of printing.
+# Unprintable characters become "?" rather than ending the run. The same is
+# done in keep_alive.py, which this tool deliberately does not import.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors="replace")
+    except (AttributeError, OSError, ValueError):
+        pass        # not a real stream - only prettier console text is lost
+
 # PortAudio exposes the same speakers through several host APIs. WASAPI is the
 # native one on Windows; MME/DirectSound add latency and resampling we do not want.
 PREFERRED_HOSTAPI = "Windows WASAPI"

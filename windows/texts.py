@@ -114,10 +114,16 @@ CS = {
                         "sniž hlasitost nebo frekvenci.",
     "lbl_freq": "Frekvence",
     "opt_hz": "{v} Hz",
-    "lbl_amp": "Hlasitost (% plného rozsahu)",
-    "opt_percent": "{v} %",
     "lbl_duration": "Délka impulzu",
     "opt_sec": "{v} s",
+    "lbl_amp": "Hlasitost (% plného rozsahu)",
+    "opt_percent": "{v} %",
+    "sw_amp_correction": "Dynamická korekce hlasitosti",
+    "sw_amp_correction_desc": "Windows ztlumí impulz stejně jako hudbu — při "
+                              "nízké hlasitosti ho reproduktor nemusí "
+                              "zaznamenat a usne. Aplikace ho o to samé "
+                              "zesílí; hlasitější, než při plné hlasitosti "
+                              "Windows, nikdy nebude.",
     "warn_short_pulse": "Pozor: {d} s při {f} Hz je jen {p} periody. Kratší "
                         "než dvě celé vlny reproduktor nezahraje jako tón — "
                         "prodluž impulz nebo zvyš frekvenci.",
@@ -128,6 +134,7 @@ CS = {
     "sw_active": "Udržovat reproduktory vzhůru",
     "sw_autostart": "Spouštět po přihlášení do Windows",
     "sw_log": "Zapisovat log do souboru",
+    "link_log": "Otevřít log",
     # Problems that have nowhere else to be seen - a zabalená aplikace nemá
     # konzoli. Viz problem() v keep_alive.py.
     "warn_config": "Nastavení se nepodařilo přečíst, takže platí výchozí "
@@ -137,6 +144,7 @@ CS = {
                 "nevede. ({error})",
     "warn_log_rotate": "Log přerostl svoji velikost a nepodařilo se založit "
                        "nový soubor, takže roste dál. ({error})",
+    "warn_log_open": "Log se nepodařilo otevřít. Hledej ho v {path}. ({error})",
 
     # --- pause card ----------------------------------------------------
     "card_pause": "Dočasně pozastavit",
@@ -314,10 +322,16 @@ EN = {
                         "hear it, lower the volume or the frequency.",
     "lbl_freq": "Frequency",
     "opt_hz": "{v} Hz",
-    "lbl_amp": "Volume (% of full scale)",
-    "opt_percent": "{v} %",
     "lbl_duration": "Pulse length",
     "opt_sec": "{v} s",
+    "lbl_amp": "Volume (% of full scale)",
+    "opt_percent": "{v} %",
+    "sw_amp_correction": "Dynamic volume correction",
+    "sw_amp_correction_desc": "Windows turns the pulse down along with the "
+                              "music — set low enough, the speaker may not "
+                              "notice it and falls asleep. The app puts back "
+                              "exactly that much; it never goes louder than it "
+                              "would be at full Windows volume.",
     "warn_short_pulse": "Careful: {d} s at {f} Hz is only {p} periods. Less "
                         "than two full waves is not a tone to a speaker — "
                         "make the pulse longer or raise the frequency.",
@@ -328,6 +342,7 @@ EN = {
     "sw_active": "Keep the speakers awake",
     "sw_autostart": "Start when I log in to Windows",
     "sw_log": "Write a log file",
+    "link_log": "Open the log",
     # Problems with nowhere else to show - a packaged app has no console.
     # See problem() in keep_alive.py. These are also what the LOG says, so
     # they have to read sensibly on their own line in a text file.
@@ -338,6 +353,8 @@ EN = {
                 "recorded. ({error})",
     "warn_log_rotate": "The log outgrew its size and a new file could not be "
                        "started, so it keeps growing. ({error})",
+    "warn_log_open": "The log could not be opened. It lives in {path}. "
+                     "({error})",
 
     # --- pause card ----------------------------------------------------
     "card_pause": "Pause for a while",

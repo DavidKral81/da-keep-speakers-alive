@@ -162,13 +162,17 @@ JAK ČASTO POSÍLAT IMPULZ
     impulz" je to vidět.
 
 JAKÝ IMPULZ POSÍLAT
-    Frekvence, hlasitost a délka — podrobně v oddílu 5.
+    Frekvence, délka a hlasitost — podrobně v oddílu 5.
+    Pod hlasitostí je "Dynamická korekce hlasitosti" (oddíl 5).
     Tlačítko "Vyzkoušet impulz" a pruh pod ním.
 
 CHOVÁNÍ APLIKACE
     Udržovat reproduktory vzhůru      hlavní vypínač
     Spouštět po přihlášení do Windows viz oddíl 7
     Zapisovat log do souboru
+    Otevřít log                       odkaz — otevře soubor
+                                      keep_alive.log (kde leží,
+                                      je v oddílu 10)
 
 JAZYK
     Vlaječkami vpravo nahoře v okně. Přepne se hned, včetně
@@ -219,8 +223,35 @@ potřebného — rezerva nic nestojí, protože ji stejně neslyšíš.
 CO SE DÁ NASTAVIT
 
   Frekvence     5 až 100 Hz     čím níž, tím hůř slyšitelné
-  Hlasitost     0,1 až 10 %     % plného rozsahu (1 % = -40 dBFS)
   Délka         0,1 až 2 s
+  Hlasitost     0,1 až 10 %     % plného rozsahu (1 % = -40 dBFS)
+
+DYNAMICKÁ KOREKCE HLASITOSTI
+
+  Zaškrtávátko pod hlasitostí. Ve výchozím stavu je vypnuté.
+
+  Windows ztlumí impulz úplně stejně jako hudbu. Když je posuvník
+  hlasitosti nízko, dorazí k reproduktoru zlomek toho, co je
+  nastavené — a reproduktor to nemusí poznat a usne, přestože
+  aplikace impulz posílá a v logu hlásí úspěch.
+
+  Naměřený příklad: posuvník na 4 % znamená útlum -31,7 dB, takže
+  z impulzu nastaveného na 1 % zbude 0,026 % plného rozsahu.
+
+  Se zapnutou korekcí aplikace před odesláním zesílí impulz přesně
+  o tolik, kolik mu Windows vezme. K reproduktoru pak dorazí to,
+  co je nastavené, ať je posuvník kdekoli.
+
+  Hlasitější, než by byl při plné hlasitosti Windows, přitom
+  nikdy nebude — takže impulz, který při plné hlasitosti neslyšíš,
+  neuslyšíš ani se zapnutou korekcí.
+
+  Hlasitost se čte pro každý výstup zvlášť (každý má ve Windows
+  vlastní posuvník). Když ji u některého zařízení přečíst nejde,
+  posílá se na něj impulz beze změny.
+
+  V logu je pak vidět obojí — nastavená hodnota i to, co se
+  opravdu odeslalo:  "(20 Hz, 1.0 % -> 38.5 %, 0.4 s)".
 
 DVĚ VĚCI, KTERÉ STOJÍ ZA TO VĚDĚT
 
@@ -236,9 +267,11 @@ DVĚ VĚCI, KTERÉ STOJÍ ZA TO VĚDĚT
 KDYŽ REPRODUKTORY PŘESTO USÍNAJÍ
 
   Zkoušej v tomhle pořadí, vždycky jen jednu věc:
-    1. zkrátit interval (3 minuty → 2 minuty → 1 minuta)
-    2. zvýšit hlasitost (1 % → 2 %)
-    3. zvýšit frekvenci (20 Hz → 30 nebo 50 Hz)
+    1. podívej se, kde máš hlasitost ve Windows — když je nízko,
+       zapni "Dynamickou korekci hlasitosti" (výš v tomhle oddílu)
+    2. zkrátit interval (3 minuty → 2 minuty → 1 minuta)
+    3. zvýšit hlasitost (1 % → 2 %)
+    4. zvýšit frekvenci (20 Hz → 30 nebo 50 Hz)
 
   Ověřené je, že kadence 3 minuty stačí. Jestli by stačil i delší
   interval, zkoušené nebylo.
@@ -321,15 +354,24 @@ keep_alive.log (kde leží, je v oddílu 10). Log je vždy anglicky.
       přehraje "naprázdno" a reproduktory usnou, jako by
       aplikace neběžela. Aplikace to sama hlídá a v okamžiku
       zrušení ztlumení pošle impulz, ale po celou dobu ztlumení
-      jim nic nepomůže. Když je zvuk v pořádku, zkrať interval
-      a pak zvyš hlasitost — viz oddíl 5.
+      jim nic nepomůže.
 
-  "Could not read the mute state: …"
-      Windows nepustilo aplikaci ke stavu ztlumení. Impulzy
-      chodí dál úplně normálně; nefunguje jen ta jedna věc
-      navíc — impulz ve chvíli, kdy zrušíš ztlumení. Dokud
-      závada trvá, je hláška v logu jednou; když se to střídá
-      (chvíli to jde, chvíli ne), objeví se pokaždé znovu.
+      Druhá věc je hlasitost ve Windows: i nízko stažený (ne
+      ztlumený) posuvník dokáže impulz zeslabit natolik, že ho
+      reproduktor přejde. Na to je "Dynamická korekce hlasitosti"
+      — oddíl 5.
+
+      Když je zvuk v pořádku, zkrať interval a pak zvyš
+      hlasitost — viz oddíl 5.
+
+  "Could not read what Windows does to the sound: …"
+      Windows nepustilo aplikaci ke stavu hlasitosti a ztlumení.
+      Impulzy chodí dál úplně normálně; nefungují jen dvě věci
+      navíc — impulz ve chvíli, kdy zrušíš ztlumení, a dynamická
+      korekce hlasitosti (ta se pak neuplatní a impulz jde ven
+      přesně tak, jak je nastavený). Dokud závada trvá, je hláška
+      v logu jednou; když se to střídá (chvíli to jde, chvíli
+      ne), objeví se pokaždé znovu.
 
   Impulz je slyšet, nebo praská
       Viz oddíl 6.

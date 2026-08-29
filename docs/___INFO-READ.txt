@@ -178,15 +178,13 @@ WHAT THE PULSE SOUNDS LIKE
 APPLICATION BEHAVIOUR
     Keep the speakers awake          the main switch
     Start when I log in to Windows   see section 7
-    Open the log                     a link - opens keep_alive.log
-                                     (section 10 says where it is)
 
     The log is always written and the window has no switch for it.
     It grows by some 28 kB a day and can never pass 4 MB - after
     2 MB a new file is started and the old one becomes .log.1, so
     at most two are kept. It is the only record of what the app did
     in the moments nobody can reproduce: sleep, an unplugged dock,
-    a mute.
+    a mute. There is a link at the foot of the window to open it.
 
     If you would rather not have it, set "log" to false in
     config.json (section 10).
@@ -203,7 +201,19 @@ PAUSE FOR A WHILE
     It switches itself back on afterwards; neither the window nor
     the menu goes on claiming it is still paused.
 
-At the bottom: a link to the project page and a "Quit application"
+LINKS AT THE FOOT OF THE WINDOW
+    Manual              opens this file (___INFO-CTI.txt in Czech)
+    Open the log        opens keep_alive.log - section 10 says
+                        where it lives
+    Project page        the project on GitHub
+    v1.x                the version you have
+    Check for updates   opens the releases page; compare the number
+                        beside it with the one there
+
+    The app asks the network nothing by itself - the browser opens
+    the page only when you click the link.
+
+At the very bottom: a "Quit application"
 button.
 
 

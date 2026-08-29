@@ -2117,16 +2117,15 @@ class Settings:
         self.sw_active = self._switch(card, tx("sw_active"), "active")
         self.sw_autostart = self._switch(card, tx("sw_autostart"), None,
                                          autostart_enabled, autostart_set)
-        # No switch for the log any more, only the link. Writing it costs
-        # 28 kB a day (measured over ten days of real use) and can never pass
-        # 4 MB, because rotation keeps two files of two - so there was nothing
-        # to protect anyone from. What switching it off did cost was the one
-        # record of what the app did in the moments nobody can reproduce: the
-        # "a partial pulse is logged as a total failure" bug was found in a
-        # real log, not by any test here. The key stays in config.json for
-        # anyone who really wants it off; the window no longer offers it.
-        self._link(card, tx("link_log"),
-                   self._open_log).pack(anchor="w", pady=(6, 0))
+        # No switch for the log any more, and no link here either - the link
+        # lives with the other links at the foot of the window. Writing the
+        # log costs 28 kB a day (measured over ten days of real use) and can
+        # never pass 4 MB, because rotation keeps two files of two - so there
+        # was nothing to protect anyone from. What switching it off did cost
+        # was the one record of what the app did in the moments nobody can
+        # reproduce: the "a partial pulse is logged as a total failure" bug
+        # was found in a real log, not by any test here. The key stays in
+        # config.json for anyone who really wants it off.
         # Where the problems from problem() surface. Amber like the pulse
         # warning above, because it is the same kind of message: nothing is
         # broken beyond repair, but the user has to know. Filled in by
@@ -2149,18 +2148,41 @@ class Settings:
             0, self._pause)
 
         # --- links ------------------------------------------------------
+        # Laid out like Da BT Dynamic Lock, which is the pattern this project
+        # follows: the links belong together at the foot of the window rather
+        # than scattered through the cards they happen to relate to.
         self.links_frame = tk.Frame(self.grid_frame, bg=self.BG)
+
+        def separator(parent):
+            tk.Label(parent, text="   ·   ", bg=self.BG, fg=self.DIM,
+                     font=("Segoe UI", 10)).pack(side="left")
+
         row = tk.Frame(self.links_frame, bg=self.BG)
-        row.pack(anchor="w", pady=(0, 14))
+        row.pack(anchor="w")
+        self._link(row, tx("link_manual"), self._open_manual).pack(side="left")
+        separator(row)
+        self._link(row, tx("link_log"), self._open_log).pack(side="left")
+        separator(row)
         self._link(row, tx("link_project"),
                    self._open_project).pack(side="left")
-        tk.Label(row, text="   ·   ", bg=self.BG, fg=self.DIM,
-                 font=("Segoe UI", 10)).pack(side="left")
+
         # The version belongs somewhere a user can find it when reporting a
         # problem. Same constant the file properties use, so the two can never
         # disagree.
+        #
+        # The update link sits right beside it because the two answer one
+        # question: am I behind? The app deliberately does NOT ask the network
+        # itself - the browser opens the release page and the user compares
+        # the number here with the number there. A second row, so a narrow
+        # window does not have to fit five items on one line.
+        row = tk.Frame(self.links_frame, bg=self.BG)
+        row.pack(anchor="w", pady=(3, 14))
         tk.Label(row, text=f"v{VERSION}", bg=self.BG, fg=self.DIM,
                  font=("Segoe UI", 10)).pack(side="left")
+        separator(row)
+        self._link(row, tx("link_updates"),
+                   self._open_releases).pack(side="left")
+
         self._button(self.links_frame, tx("btn_quit"),
                      self._quit).pack(anchor="w")
 
@@ -2257,6 +2279,41 @@ class Settings:
             self.tray.refresh()
 
     def _open_project(self):
+        os.startfile(PROJECT_URL)
+
+    def _open_releases(self):
+        """The release page, so the user can compare their version with it.
+
+        The app deliberately does not ask the network anything by itself: a
+        program that keeps the speakers awake has no business making requests
+        in the background, and a number on a page the user opens is honest
+        about when it was checked.
+        """
+        os.startfile(f"{PROJECT_URL}/releases/latest")
+
+    def _open_manual(self):
+        """The manual in the window's language, wherever it happens to live.
+
+        Found by pattern rather than by an exact name, so renaming a manual
+        cannot silently break the link. In English the English one; when that
+        is missing, Czech beats nothing at all.
+
+        Installed, the manuals sit next to the program; run from source they
+        are in docs\\ one level up.
+        """
+        patterns = (["*INFO-READ*.txt", "*INFO*.txt"] if texts.language() == "en"
+                    else ["*INFO-CTI*.txt", "*INFO*.txt"])
+        for pattern in patterns:
+            for folder in (PROGRAM, HERE.parent / "docs", HERE):
+                manual = next(folder.glob(pattern), None)
+                if manual:
+                    os.startfile(manual)
+                    return
+        # Nothing found. A click that does nothing at all is the worst answer,
+        # and the same manuals are in the repository - so open that instead and
+        # write down why, rather than leaving a dead link behind.
+        log("No manual found next to the program or in docs/ - "
+            "opening the project page instead.")
         os.startfile(PROJECT_URL)
 
     def _open_log(self):

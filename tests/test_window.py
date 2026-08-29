@@ -383,7 +383,7 @@ def main():
              signal_card_in_order)
 
         def the_log_can_be_opened():
-            """The link under "write a log file" - both ways it can go.
+            """The link at the foot of the window - both ways it can go.
 
             A link that quietly does nothing is the worst outcome here, and it
             is the likely one: a --windowed build has no console, so an
@@ -414,6 +414,66 @@ def main():
                 settings._refresh_status()
         step("the log opens, and says so when it cannot",
              the_log_can_be_opened)
+
+        def every_link_leads_somewhere():
+            """All four links at the foot, and each one really opens something.
+
+            Checking that the labels are on screen is not enough: a link whose
+            handler opens nothing looks exactly like one that works, because
+            the pulse of a click is invisible. So each is called with Windows
+            stood in for, and what it was asked to open is inspected.
+
+            The manual matters most. It is found by pattern in three folders,
+            and the packaged build puts it somewhere else than a run from
+            source does - so a link that works here can still be dead in the
+            installed copy. What is checked is that a real, existing file was
+            opened, not merely that something was.
+            """
+            saved_start = K.os.startfile
+            try:
+                opened = []
+                K.os.startfile = lambda path: opened.append(str(path))
+
+                for label, action in (
+                        (K.tx("link_manual"), settings._open_manual),
+                        (K.tx("link_log"), settings._open_log),
+                        (K.tx("link_project"), settings._open_project),
+                        (K.tx("link_updates"), settings._open_releases)):
+                    opened.clear()
+                    action()
+                    assert opened, f'"{label}" opened nothing at all'
+
+                opened.clear()
+                settings._open_manual()
+                target = Path(opened[0])
+                assert target.exists() and target.suffix == ".txt", \
+                    f"the manual link opened {target}, which is not a manual"
+
+                # English window -> English manual. Falling back to Czech is
+                # deliberate, but only when the English one is missing.
+                was = K.texts.language()
+                try:
+                    K.texts.set_language("en")
+                    opened.clear()
+                    settings._open_manual()
+                    assert "READ" in Path(opened[0]).name.upper(), \
+                        f"English window opened {Path(opened[0]).name}"
+                    K.texts.set_language("cs")
+                    opened.clear()
+                    settings._open_manual()
+                    assert "CTI" in Path(opened[0]).name.upper(), \
+                        f"Czech window opened {Path(opened[0]).name}"
+                finally:
+                    K.texts.set_language(was)
+
+                opened.clear()
+                settings._open_releases()
+                assert opened[0].startswith(K.PROJECT_URL) \
+                    and "releases" in opened[0], opened[0]
+            finally:
+                K.os.startfile = saved_start
+        step("every link at the foot opens what it promises",
+             every_link_leads_somewhere)
 
         def two_columns_without_gaps():
             """Wide window: the cards must sit right under one another.

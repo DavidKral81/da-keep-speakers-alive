@@ -88,11 +88,13 @@ An icon next to the clock, and a settings window behind it.
   Windows takes off — never more, so a pulse you cannot hear at full volume
   stays one you cannot hear.
 - **Start when I log in to Windows** — registers a task in Task Scheduler.
-- **Open the log** — a link straight to `keep_alive.log`. The log is always
-  written: some 28 kB a day, and never past 4 MB, because rotation keeps two
-  files of two. There is no switch for it, because it is the only record of
-  what the app did in the moments nobody can reproduce — a sleep, an unplugged
-  dock, a mute. `"log": false` in `config.json` still turns it off.
+- **Links at the foot** — the manual, the log, the project page, and a check
+  for updates that opens the releases page rather than asking the network by
+  itself. The log is always written: some 28 kB a day, and never past 4 MB,
+  because rotation keeps two files of two. There is no switch for it, because
+  it is the only record of what the app did in the moments nobody can
+  reproduce — a sleep, an unplugged dock, a mute. `"log": false` in
+  `config.json` still turns it off.
 - **Pause for a while** — for when you need real silence, recording audio, say.
   It switches itself back on afterwards.
 - **Czech / English**, switched live by the two flags in the top right corner.

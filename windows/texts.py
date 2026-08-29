@@ -156,7 +156,9 @@ CS = {
     "opt_pause_hours_5": "Pozastavit na {h} hodin",
 
     # --- links ---------------------------------------------------------
+    "link_manual": "Návod",
     "link_project": "Stránka projektu",
+    "link_updates": "Zkontrolovat aktualizace",
     "btn_quit": "Ukončit aplikaci",
 
     # --- tray ----------------------------------------------------------
@@ -365,7 +367,9 @@ EN = {
     "opt_pause_hours_5": "Pause for {h} hours",
 
     # --- links ---------------------------------------------------------
+    "link_manual": "Manual",
     "link_project": "Project page",
+    "link_updates": "Check for updates",
     "btn_quit": "Quit application",
 
     # --- tray ----------------------------------------------------------

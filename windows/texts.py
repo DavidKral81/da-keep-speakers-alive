@@ -119,11 +119,10 @@ CS = {
     "lbl_amp": "Hlasitost (% plného rozsahu)",
     "opt_percent": "{v} %",
     "sw_amp_correction": "Dynamická korekce hlasitosti",
-    "sw_amp_correction_desc": "Windows ztlumí impulz stejně jako hudbu — při "
-                              "nízké hlasitosti ho reproduktor nemusí "
-                              "zaznamenat a usne. Aplikace ho o to samé "
-                              "zesílí; hlasitější, než při plné hlasitosti "
-                              "Windows, nikdy nebude.",
+    "sw_amp_correction_desc": "Zesílí úroveň odesílaného signálu, pokud je "
+                              "hlasitost ve Windows nastavena příliš nízko "
+                              "(prevence příliš slabého signálu, který "
+                              "reproduktory neprobudí).",
     "warn_short_pulse": "Pozor: {d} s při {f} Hz je jen {p} periody. Kratší "
                         "než dvě celé vlny reproduktor nezahraje jako tón — "
                         "prodluž impulz nebo zvyš frekvenci.",
@@ -328,11 +327,9 @@ EN = {
     "lbl_amp": "Volume (% of full scale)",
     "opt_percent": "{v} %",
     "sw_amp_correction": "Dynamic volume correction",
-    "sw_amp_correction_desc": "Windows turns the pulse down along with the "
-                              "music — set low enough, the speaker may not "
-                              "notice it and falls asleep. The app puts back "
-                              "exactly that much; it never goes louder than it "
-                              "would be at full Windows volume.",
+    "sw_amp_correction_desc": "Raises the level of the signal sent when the "
+                              "Windows volume is set too low (so the signal "
+                              "cannot end up too weak to wake the speakers).",
     "warn_short_pulse": "Careful: {d} s at {f} Hz is only {p} periods. Less "
                         "than two full waves is not a tone to a speaker — "
                         "make the pulse longer or raise the frequency.",

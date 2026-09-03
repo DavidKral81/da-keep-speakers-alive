@@ -38,6 +38,13 @@ K.CFG_PATH = Path(tempfile.gettempdir()) / "da-keep-speakers-alive-test.json"
 
 FAILED = []
 
+# What a stand-in play() hands back, in the shape the real one does:
+# (opening, writing, latency) in seconds. A stand-in is a caller of that
+# contract like any other, so it has to answer in the same shape - a double
+# left returning None is how a signature change gets through the tests and
+# breaks only in the app.
+FAKE_TIMING = (0.02, 0.41, 0.110)
+
 
 def check(name, condition, detail=""):
     print(f"  {'ok  ' if condition else 'FAIL'}  {name}"
@@ -285,7 +292,7 @@ def test_what_a_missing_device_reports():
         K.targets = lambda devices=None: (
             [{"index": 0, "name": "Works", "samplerate": 48000,
               "channels": 2}], [gone])
-        K.play = lambda device, wave: None
+        K.play = lambda device, wave: FAKE_TIMING
         error = engine.send(" (test)") or ""
         check("a pulse that reached SOME devices is not called a failure",
               engine.state() == "partial", engine.state())
@@ -347,9 +354,13 @@ def test_retry_after_a_failed_pulse():
              engine.partly)
     saved_cfg = dict(K.CFG)
     saved_pause = engine.paused_until
+    saved_follow = engine.follow_up
     saved_targets, saved_log, saved_play = K.targets, K.log, K.play
     try:
         K.CFG["interval_s"] = 300
+        # gap() answers for the follow-up as well, and a pulse owed from an
+        # earlier test would shorten every figure below.
+        engine.follow_up = False
         # Both of these decide due_in() before the gap ever gets a say, and
         # both come from the user's real settings file. With the main switch
         # off due_in() returns None and the check below would blow up on a
@@ -400,14 +411,32 @@ def test_retry_after_a_failed_pulse():
         K.targets = lambda devices=None: (
             [{"index": 0, "name": "Works", "samplerate": 48000,
               "channels": 2}], [])
-        K.play = lambda device, wave: None
+        K.play = lambda device, wave: FAKE_TIMING
         engine.send(" (test)")
         check("a pulse that got through puts the count back to zero",
               engine.retries == 0, engine.retries)
+
+        # The follow-up shortens the same gap, and the shorter of the two has
+        # to win: both exist to stop the speakers being left asleep.
+        K.CFG["interval_s"] = 300
+        engine.error_items, engine.retries = [], 0
+        engine.follow_up = True
+        check("a pulse owed a second one comes back within seconds",
+              engine.gap() == engine.FOLLOW_UP_S, engine.gap())
+        engine.error_items, engine.retries = [("err_no_device", {})], 1
+        check("and a retry that is sooner still wins over it",
+              engine.gap() == 10, engine.gap())
+        # 10 s is as short as the interval goes - see interval().
+        K.CFG["interval_s"] = 10
+        engine.error_items, engine.retries = [], 0
+        check("neither is ever stretched past the interval itself",
+              engine.gap() == 10, engine.gap())
+        engine.follow_up = False
     finally:
         K.targets, K.log, K.play = saved_targets, saved_log, saved_play
         engine.retries, engine.error_items, engine.last_at, engine.partly = saved
         engine.paused_until = saved_pause
+        engine.follow_up = saved_follow
         K.CFG.clear()
         K.CFG.update(saved_cfg)
 
@@ -523,6 +552,8 @@ def test_the_engine_loop_does_its_job():
     engine = K.ENGINE
     saved = (engine.woke_up, engine.last_at, engine.retries,
              list(engine.error_items), engine.paused_until, engine.pulse_now)
+    saved_watch = (engine.follow_up, engine.seen, engine.muted,
+                   engine.scanned_at)
     saved_send, saved_check, saved_log = (engine.send, engine.check_for_a_break,
                                           K.log)
     saved_cfg = dict(K.CFG)
@@ -564,6 +595,57 @@ def test_the_engine_loop_does_its_job():
         check("and the wake-up is not left standing", engine.woke_up is False,
               engine.woke_up)
 
+        # --- the pulse that backs up a cold one ---------------------------
+        # Driven through run(), never by setting follow_up by hand: gap() can
+        # divide perfectly and the loop still never owe a second pulse at all,
+        # and every check that only reads the flag would pass.
+        #
+        # The case is the one from 03.09.2026: the first pulse after a cold
+        # start was logged as a success and the speakers slept through it.
+
+        def pulses(reason=""):
+            sent.append(reason)
+            engine.last_at = K.time.monotonic()     # like the real send()
+
+        engine.send = pulses
+        engine.check_for_a_break = one_turn_only
+        K.CFG["interval_s"] = 3600
+        engine.woke_up = False
+        engine.follow_up = False
+        engine.error_items, engine.retries = [], 0
+        engine.last_at = 0.0            # nothing sent yet - the app just started
+        sent.clear()
+        engine.stop.clear()
+        engine.run()
+        check("the first pulse after a start goes out at once", sent == [""],
+              sent)
+        check("and it leaves a second one owed", engine.follow_up is True,
+              engine.follow_up)
+        check("due within seconds, not at the end of the interval",
+              0 < engine.due_in() <= engine.FOLLOW_UP_S, engine.due_in())
+
+        # The follow-up itself, and the log has to say what it is: two pulses
+        # a quarter of a minute apart otherwise read like a fault.
+        engine.last_at -= engine.FOLLOW_UP_S + 1
+        sent.clear()
+        engine.stop.clear()
+        engine.run()
+        check("the second pulse really goes out",
+              sent == [" (again, the first one may not have been heard)"], sent)
+        check("and it does not owe a third", engine.follow_up is False,
+              engine.follow_up)
+
+        # Which is the whole of it: owing one for ever would pulse every
+        # fifteen seconds until the app was closed.
+        engine.scanned_at = K.time.monotonic()      # keep the device scan out
+        engine.last_at -= engine.FOLLOW_UP_S + 1
+        sent.clear()
+        engine.stop.clear()
+        engine.run()
+        check("then it goes back to the interval the user chose", sent == [],
+              sent)
+        engine.check_for_a_break = saved_check
+
         engine.send = saved_send
 
         def explode():
@@ -595,6 +677,8 @@ def test_the_engine_loop_does_its_job():
                                                         saved_log)
         (engine.woke_up, engine.last_at, engine.retries, engine.error_items,
          engine.paused_until, engine.pulse_now) = saved
+        (engine.follow_up, engine.seen, engine.muted,
+         engine.scanned_at) = saved_watch
         engine.stop.clear()
         engine.wake.clear()
         K.CFG.clear()
@@ -620,6 +704,7 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
     saved = (engine.seen, engine.muted, engine.scanned_at, engine.last_at,
              engine.woke_up, engine.pulse_now, engine.paused_until,
              engine.retries, list(engine.error_items))
+    saved_follow = engine.follow_up
     saved_send, saved_refresh = engine.send, K.refresh_devices
     saved_targets, saved_cfg = K.targets, dict(K.CFG)
     saved_muted = K.endpoint_state
@@ -874,7 +959,10 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
         # looks new at the next scan and earns a second one.
         engine.send = saved_send
         saved_play, played = K.play, []
-        K.play = lambda device, wave: played.append(device["name"])
+        def remembers(device, wave):
+            played.append(device["name"])
+            return FAKE_TIMING
+        K.play = remembers
         try:
             engine.seen = {K._key(headphones)}
             engine.muted = {K._key(speakers)}
@@ -922,6 +1010,7 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
         (engine.seen, engine.muted, engine.scanned_at, engine.last_at,
          engine.woke_up, engine.pulse_now, engine.paused_until, engine.retries,
          engine.error_items) = saved
+        engine.follow_up = saved_follow
         engine.stop.clear()
         engine.wake.clear()
         K.CFG.clear()
@@ -982,6 +1071,7 @@ def test_the_volume_correction():
 
     def record(device, wave):
         played.append((device["name"], float(np.max(np.abs(wave)))))
+        return FAKE_TIMING
 
     def three_devices(devices=None):
         return [{"name": name, "index": i, "samplerate": 48000, "channels": 2}
@@ -1041,6 +1131,13 @@ def test_the_volume_correction():
         check("and the log says what really went out, not just the setting",
               "1.0 % -> " in written and "%" in written.split("->")[1],
               written)
+        # And how the device behaved while it went out. A pulse can be
+        # reported as sent and still not be heard - that is exactly what
+        # happened on 03.09.2026 - and these three numbers are the only trace
+        # of the device itself that the log can hold. Summed over the three
+        # stand-in devices: 3 x 0.02 s opening, 3 x 0.41 s writing.
+        check("and how the device behaved while it did, not only what it was told",
+              "[open 0.06 s, write 1.23 s, latency 0.110 s]" in written, written)
 
         # A reading that fails must drop the attenuations rather than keep
         # them: they are a measurement of a moment, and correcting by a stale

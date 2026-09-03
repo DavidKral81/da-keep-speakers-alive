@@ -162,6 +162,14 @@ HOW OFTEN TO SEND A PULSE
     falls asleep exactly as it would with the app switched off.
     A device that has just been connected or un-muted is
     noticed within 10 seconds.
+    After a start and after a wake-up the pulse goes out twice:
+    at once, and again 15 seconds later. The first one can land
+    while the audio path is still coming up after the boot - it
+    then plays into nothing, the app counts it as a success, and
+    the speakers sleep on regardless. The second pulse is the
+    safety net for exactly that; the log marks it "again".
+    Neither of them is audible.
+
     If the pulse cannot be played (the device
     has yet to come back after a wake-up), it is tried again
     after 10, 20, 40 seconds and then three more times a minute
@@ -185,6 +193,12 @@ APPLICATION BEHAVIOUR
     at most two are kept. It is the only record of what the app did
     in the moments nobody can reproduce: sleep, an unplugged dock,
     a mute. There is a link at the foot of the window to open it.
+
+    Every pulse that went out also carries how the sound device
+    behaved:  "[open 0.02 s, write 0.41 s, latency 0.110 s]" - how
+    long it took to open, how long the writing took, and the buffer
+    it worked with. It is the only trace of the device itself: a
+    pulse can be recorded as sent and still not be heard.
 
     If you would rather not have it, set "log" to false in
     config.json (section 10).

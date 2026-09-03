@@ -153,6 +153,14 @@ JAK ČASTO POSÍLAT IMPULZ
     takže usne úplně stejně, jako by aplikace neběžela. Nově
     připojené i odtlumené zařízení aplikace zpozoruje
     nejpozději do 10 sekund.
+    Po spuštění a po probuzení jde impulz dvakrát: hned a ještě
+    jednou za 15 sekund. Ten první totiž může přijít ve chvíli,
+    kdy se zvuková cesta po startu teprve rozjíždí — pak se
+    přehraje naprázdno, aplikace ho vyhodnotí jako úspěšný
+    a reproduktory přesto spí dál. Druhý impulz je pojistka
+    přesně na tenhle případ; v logu je označený jako "again".
+    Slyšet není ani jeden.
+
     Když se impulz nepodaří přehrát (zařízení se po probuzení
     ještě nestihlo přihlásit), zkusí se to znovu za 10, 20, 40
     a pak třikrát po minutě — teprve potom se čeká celý
@@ -177,6 +185,13 @@ CHOVÁNÍ APLIKACE
     aplikace dělala ve chvílích, které se nedají zopakovat
     (spánek, odpojený dok, ztlumení). Otevřít ho jde odkazem
     dole v okně.
+
+    U každého odeslaného impulzu je v logu i to, jak se zvukové
+    zařízení zachovalo:  "[open 0.02 s, write 0.41 s, latency
+    0.110 s]" — jak dlouho trvalo ho otevřít, jak dlouho do něj
+    zápis, a s jakým bufferem pracovalo. Je to jediná stopa po
+    zařízení samotném: impulz může být v logu zapsaný jako
+    odeslaný a reproduktor ho přesto neuslyší.
 
     Když ho přesto nechceš, přepiš v config.json (oddíl 10)
     hodnotu "log" na false.

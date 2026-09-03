@@ -800,15 +800,31 @@ BUFFER_S = 0.1
 
 
 def play(device, wave):
-    """Play one pulse on one device. Raises on failure - the caller logs it."""
+    """Play one pulse on one device. Raises on failure - the caller logs it.
+
+    Returns (opening, writing, latency) in seconds. Those three go into the
+    log, and they are there for one reason: a pulse can be reported as sent
+    and still not be heard, and nothing else in the record tells the two
+    apart. Seen on 03.09.2026 - the first pulse after a cold start was logged
+    as a plain success at 20:50:42, the identical one at 20:55:44 was what
+    actually woke the speakers. PortAudio only ever answers for its own ring
+    buffer, never for what left the machine (the same trap as the crackling,
+    where underflow=False was true and meaningless), so the closest thing to
+    evidence is how long the device took to get going. Written on every pulse,
+    not only the suspect ones: a figure from a cold start means nothing
+    without the ordinary ones next to it to compare against.
+    """
     channels = device["channels"]
     data = np.tile(wave.reshape(-1, 1), (1, channels))
     with AUDIO_LOCK:
+        started = time.monotonic()
         with sd.OutputStream(device=device["index"],
                              samplerate=device["samplerate"],
                              channels=channels, dtype="float32",
                              latency=BUFFER_S) as stream:
+            opened = time.monotonic()
             stream.write(data)
+            written = time.monotonic()
             # write() returns once the sound is IN the buffer, not once it has
             # been heard - up to stream.latency of it is still queued. Leaving
             # the "with" here would close the stream on top of it and cut the
@@ -818,6 +834,7 @@ def play(device, wave):
             # the device allows, not what was requested (100 ms asked, 110 ms
             # given on this machine).
             time.sleep(stream.latency + 0.05)
+            return opened - started, written - opened, stream.latency
 
 
 # ---------------------------------------------------------------- engine
@@ -839,6 +856,27 @@ class Engine(threading.Thread):
     # A gap this much bigger than the loop expected means the machine was
     # asleep rather than merely busy.
     BREAK_S = 60
+
+    # How long after the FIRST pulse on an audio path that has only just come
+    # up - a cold start, or a wake-up - to send one more.
+    #
+    # Measured on 03.09.2026: the machine booted at 20:48:53, the dock's audio
+    # endpoints were up at 20:49:16, and the pulse at 20:50:42 was logged as a
+    # plain success with the volume correction applied - yet the speakers
+    # stayed asleep. The next one, identical in every respect, woke them at
+    # 20:55:45. The device being late is ruled out by those timestamps: it had
+    # been ready for 86 seconds. What is left is that the first stream on a
+    # path nothing has played on since boot can be swallowed while Windows
+    # gets the device going, and PortAudio reports success either way. The
+    # same morning left the louder version of it in the log: the first pulse
+    # after a break came back "Invalid sample rate [PaErrorCode -9997]".
+    #
+    # Sending it twice costs nothing - the pulse is inaudible by design - and
+    # it is the one thing that was observed to work. Deliberately NOT tied to
+    # a diagnosis: whether the sound was eaten by the audio stack or the
+    # speakers needed a second nudge after half a day asleep, a second pulse
+    # answers both, and neither can be told apart from here.
+    FOLLOW_UP_S = 15
 
     # How often to look for a speaker that has just been plugged in - or that
     # Windows has stopped muting. This one cannot run every second like the
@@ -881,6 +919,12 @@ class Engine(threading.Thread):
         # reset to zero the moment one gets through.
         self.retries = 0
         self.woke_up = False            # the machine was asleep, pulse now
+        # Whether one more pulse is owed shortly, because the last one was the
+        # first on an audio path that had only just come up. Held as a flag
+        # rather than as a deadline of its own: gap() is the single answer to
+        # "when is the next pulse", so the window's countdown, the loop and the
+        # tray all follow this without a second clock to disagree with.
+        self.follow_up = False
         # The wall clock and the monotonic clock drifting apart is what gives
         # a sleep away - see check_for_a_break().
         self.clock_gap = time.time() - time.monotonic()
@@ -912,20 +956,30 @@ class Engine(threading.Thread):
     def gap(self):
         """How long to wait after the last pulse before sending another.
 
-        Normally the interval the user chose. After a pulse that went wrong
-        it is one of RETRY_STEPS instead, so a device that is only a few
-        seconds late - a dock coming back after a wake-up, an output the
-        system has yet to re-register - is caught straight away rather than
-        one whole interval later.
+        Normally the interval the user chose. Two things shorten it, and the
+        shorter of them wins - both exist to stop the speakers being left
+        asleep, so the one that gets back to them sooner is the right answer:
+
+        - a pulse that went wrong waits one of RETRY_STEPS instead, so a
+          device that is only a few seconds late - a dock coming back after a
+          wake-up, an output the system has yet to re-register - is caught
+          straight away rather than one whole interval later.
+        - a pulse that was the first on an audio path which had only just come
+          up owes one more within FOLLOW_UP_S, whether it reported success or
+          not: success there is not proof that anything was heard.
+
+        Never longer than the interval either way: at 30 s the 60 s retry step
+        would push the pulse further away than doing nothing at all.
         """
-        if not self.error_items:
-            return self.interval()
-        step = self.retries - 1
-        if step < 0 or step >= len(self.RETRY_STEPS):
-            return self.interval()      # it is not coming back on its own
-        # never longer than the interval: a 30 s interval must not be
-        # stretched to 60 by a retry
-        return min(self.RETRY_STEPS[step], self.interval())
+        wait = self.interval()
+        if self.error_items:
+            step = self.retries - 1
+            if 0 <= step < len(self.RETRY_STEPS):
+                wait = min(self.RETRY_STEPS[step], wait)
+            # out of range: it is not coming back on its own, so the interval
+        if self.follow_up:
+            wait = min(self.FOLLOW_UP_S, wait)
+        return wait
 
     def paused(self):
         return max(0.0, self.paused_until - time.time())
@@ -1022,6 +1076,8 @@ class Engine(threading.Thread):
         # actually changed something, so the log can say so without having to
         # work it out again from settings that may have moved on since.
         raised = []
+        # (opening, writing, latency) per device that played - see play().
+        measured = []
         try:
             for device in chosen:
                 amp = asked
@@ -1039,7 +1095,7 @@ class Engine(threading.Thread):
                                   CFG.get("fade_s", 0.05),
                                   device["samplerate"])
                 try:
-                    play(device, wave)
+                    measured.append(play(device, wave))
                     played.append(device["name"])
                 except Exception as error:      # PortAudioError and friends
                     problems.append(("err_play", {"name": device["name"],
@@ -1075,6 +1131,20 @@ class Engine(threading.Thread):
                 volume += (f" -> {low:.3g} %" if low == high
                            else f" -> {low:.3g}-{high:.3g} %")
             settings = f"({CFG.get('freq_hz')} Hz, {volume}, {duration} s)"
+            # How the device behaved, not how it was asked to. Opening and
+            # writing are summed because the devices play one after another;
+            # the latency is what PortAudio granted, shown as a range when
+            # they differed. Only where something played - the failure line
+            # has nothing to measure.
+            if measured:
+                opening = sum(one[0] for one in measured)
+                writing = sum(one[1] for one in measured)
+                low = min(one[2] for one in measured)
+                high = max(one[2] for one in measured)
+                shown = (f"{low:.3f}" if low == high
+                         else f"{low:.3f}-{high:.3f}")
+                settings += (f" [open {opening:.2f} s, write {writing:.2f} s,"
+                             f" latency {shown} s]")
             trouble = "; ".join(tx_en(key, **kw) for key, kw in problems)
             if self.partly:
                 log(f"Pulse{reason} -> {', '.join(played)} {settings}"
@@ -1267,6 +1337,11 @@ class Engine(threading.Thread):
                     # and by the time this is switched back on the slider may
                     # have been anywhere. send() reads them fresh anyway.
                     self.gains = {}
+                    # A second pulse owed before the app was switched off is
+                    # dropped as well. It exists to back up ONE pulse that has
+                    # just gone out; firing it whenever the app comes back
+                    # would make it a pulse of its own, out of any context.
+                    self.follow_up = False
                 elif self.woke_up or due <= 0:
                     # Being very late means the process was frozen - the
                     # machine was asleep. The speakers slept through it too,
@@ -1276,7 +1351,30 @@ class Engine(threading.Thread):
                             if self.last_at else 0)
                     after_a_break = self.woke_up or late > 60
                     self.woke_up = False
-                    self.send(" (after a break)" if after_a_break else "")
+                    # Is this pulse the first one on an audio path that has
+                    # only just come up? Either nothing has been sent at all
+                    # yet - the app has just started, and on a machine that has
+                    # just booted the sound device came up seconds ago - or the
+                    # machine is back from a break and everything below it had
+                    # to start again. Worked out BEFORE send(), which is what
+                    # sets last_at.
+                    cold = after_a_break or not self.last_at
+                    # Taken down before the pulse and put back up only for a
+                    # cold one, so the follow-up cannot owe a follow-up of its
+                    # own and pulse every fifteen seconds for ever.
+                    owed, self.follow_up = self.follow_up, False
+                    if after_a_break:
+                        reason = " (after a break)"
+                    elif owed:
+                        # Named in the log on purpose: two pulses fifteen
+                        # seconds apart would otherwise read like a fault, and
+                        # this line is the only place the second one is
+                        # explained.
+                        reason = " (again, the first one may not have been heard)"
+                    else:
+                        reason = ""
+                    self.send(reason)
+                    self.follow_up = cold
                 elif (reason := self.a_device_needs_a_pulse()):
                     self.send(reason)
             except Exception as error:

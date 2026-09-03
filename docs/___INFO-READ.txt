@@ -162,13 +162,18 @@ HOW OFTEN TO SEND A PULSE
     falls asleep exactly as it would with the app switched off.
     A device that has just been connected or un-muted is
     noticed within 10 seconds.
-    After a start and after a wake-up the pulse goes out twice:
-    at once, and again 15 seconds later. The first one can land
-    while the audio path is still coming up after the boot - it
-    then plays into nothing, the app counts it as a success, and
-    the speakers sleep on regardless. The second pulse is the
-    safety net for exactly that; the log marks it "again".
-    Neither of them is audible.
+    In three of those cases - a start, a wake-up, and a speaker
+    being plugged in - the pulse goes out twice: at once, and
+    again 15 seconds later. All three bring the audio path up
+    with them, and the first pulse can be lost in that: it plays
+    into nothing, the app counts it as a success, and the
+    speakers sleep on regardless. The second pulse is the safety
+    net for exactly that; the log marks it "again". Neither of
+    them is audible.
+
+    An un-mute gets no second pulse - the device was there all
+    along and Windows was only refusing to let the sound out, so
+    there is nothing to start up.
 
     If the pulse cannot be played (the device
     has yet to come back after a wake-up), it is tried again

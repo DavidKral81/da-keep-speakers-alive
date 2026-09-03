@@ -756,7 +756,7 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
 
         engine.scanned_at = 0.0
         check("a speaker that turned up asks for a pulse",
-              engine.a_device_needs_a_pulse() == " (a new device to keep awake)",
+              engine.a_device_needs_a_pulse() == (" (a new device to keep awake)", True),
               engine.seen)
 
         engine.scanned_at = 0.0
@@ -769,7 +769,7 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
         here[:] = [headphones, speakers]
         silent = [speakers]
         check("arriving muted still counts as arriving",
-              engine.a_device_needs_a_pulse() == " (a new device to keep awake)",
+              engine.a_device_needs_a_pulse() == (" (a new device to keep awake)", True),
               engine.seen)
 
         engine.scanned_at = 0.0
@@ -779,7 +779,7 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
         engine.scanned_at = 0.0
         silent = []
         check("un-muting one asks for a pulse",
-              engine.a_device_needs_a_pulse() == " (a device is audible again)",
+              engine.a_device_needs_a_pulse() == (" (a device is audible again)", False),
               sorted(engine.muted))
 
         engine.scanned_at = 0.0
@@ -826,7 +826,7 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
         here[:] = [headphones, speakers, monitor]
         silent = []                          # monitor arrives, speakers wake up
         check("arrival wins when both happen at once",
-              engine.a_device_needs_a_pulse() == " (a new device to keep awake)",
+              engine.a_device_needs_a_pulse() == (" (a new device to keep awake)", True),
               engine.seen)
         engine.scanned_at = 0.0
         check("and the un-mute does NOT fire a second pulse afterwards",
@@ -858,7 +858,7 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
         engine.scanned_at = 0.0
         silent = []
         check("proved: un-muting after that failure does pulse",
-              engine.a_device_needs_a_pulse() == " (a device is audible again)",
+              engine.a_device_needs_a_pulse() == (" (a device is audible again)", False),
               sorted(engine.muted))
 
         # The point of keeping the watch: an un-mute that happens WHILE the
@@ -874,7 +874,7 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
         engine.scanned_at = 0.0
         silent = []                          # ...and it was un-muted meanwhile
         check("an un-mute during a broken reading is caught afterwards",
-              engine.a_device_needs_a_pulse() == " (a device is audible again)",
+              engine.a_device_needs_a_pulse() == (" (a device is audible again)", False),
               sorted(engine.muted))
 
         # One endpoint refusing to answer is NOT the same as it being muted.
@@ -906,7 +906,7 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
         engine.scanned_at = 0.0
         unsure = []                          # answers again, and is audible
         check("so the real un-mute after it is still caught",
-              engine.a_device_needs_a_pulse() == " (a device is audible again)",
+              engine.a_device_needs_a_pulse() == (" (a device is audible again)", False),
               sorted(engine.muted))
 
         # Wired in, part one: the loop has to send it. Everything above would
@@ -932,11 +932,17 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
 
         engine.check_for_a_break = one_turn_only
         engine.send = one_turn_then_stop
+        engine.follow_up = False
         engine.stop.clear()
         engine.run()
         engine.check_for_a_break = saved_check_break
         check("and the loop is the one that sends it",
               sent == [" (a new device to keep awake)"], sent)
+        # A speaker just plugged in brings its audio path up with it, so that
+        # first pulse is as likely to be swallowed as the one after a boot -
+        # and gets the same second one.
+        check("a speaker that just turned up is owed a second pulse too",
+              engine.follow_up is True, engine.follow_up)
 
         # The same wiring for the other reason: nothing arrives, a device is
         # merely un-muted, and the loop still has to be the one that sends it.
@@ -947,11 +953,36 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
         sent.clear()
         engine.check_for_a_break = one_turn_only
         engine.send = one_turn_then_stop
+        engine.follow_up = False
+        engine.last_at = K.time.monotonic()
         engine.stop.clear()
         engine.run()
         engine.check_for_a_break = saved_check_break
         check("and the loop sends the un-mute pulse too",
               sent == [" (a device is audible again)"], sent)
+        # But an un-mute is NOT a cold start: the device was there all along
+        # and Windows was only refusing to let the sound out. Owing a second
+        # pulse for it would double every un-mute for nothing.
+        check("an un-mute is not cold, so it owes no second pulse",
+              engine.follow_up is False, engine.follow_up)
+
+        # And it must not cancel one that is still owed to an earlier pulse -
+        # that debt belongs to a different moment and a different device.
+        engine.scanned_at = 0.0
+        engine.seen = {K._key(headphones), K._key(speakers)}
+        engine.muted = {K._key(speakers)}
+        silent = []
+        sent.clear()
+        engine.check_for_a_break = one_turn_only
+        engine.send = one_turn_then_stop
+        engine.follow_up = True
+        engine.last_at = K.time.monotonic()
+        engine.stop.clear()
+        engine.run()
+        engine.check_for_a_break = saved_check_break
+        check("nor does it cancel a second pulse already owed",
+              sent == [" (a device is audible again)"]
+              and engine.follow_up is True, f"{sent} {engine.follow_up}")
 
         # Wired in, part two: the REAL send() re-reads the list itself, so it
         # has to leave BOTH watches up to date. Otherwise a device that arrived

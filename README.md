@@ -115,11 +115,12 @@ a whole interval — a muted output accepts the pulse and plays nothing at all.
 And if the pulse cannot be played because the device has yet to come back, it
 is retried within seconds instead of one interval later.
 
-At a start and after a wake-up the pulse goes out twice — at once, and again
-fifteen seconds later. The first one can land while the audio path is still
-coming up, where it plays into nothing and is still reported as sent; the
-second is the safety net for that. Neither is audible, and every pulse in the
-log carries how long the device took to open and to write, because a pulse
+Wherever the audio path itself has just come up — a start, a wake-up, a
+speaker being plugged in — the pulse goes out twice: at once, and again
+fifteen seconds later. The first one can land while the device is still
+starting, where it plays into nothing and is reported as sent all the same;
+the second is the safety net for that. Neither is audible, and every pulse in
+the log carries how long the device took to open and to write, because a pulse
 recorded as sent is not proof that anything was heard.
 
 ---

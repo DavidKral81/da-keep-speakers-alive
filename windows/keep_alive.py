@@ -1199,7 +1199,13 @@ class Engine(threading.Thread):
             self.last_at -= drift
 
     def a_device_needs_a_pulse(self):
-        """Why a chosen speaker should be pulsed right now, or None.
+        """(why a chosen speaker should be pulsed right now, is it cold), or
+        None.
+
+        The second half is what the follow-up in run() reads, and it is
+        answered HERE rather than worked out from the first half, because the
+        first half is a line of log text. Deciding on the wording of a message
+        is how the two quietly come apart the day somebody rephrases it.
 
         Two things make one reachable again without any pulse being due, and
         both leave it asleep until the next one:
@@ -1241,7 +1247,13 @@ class Engine(threading.Thread):
             # log is the only record of what really happened, and a line
             # blaming a USB event that never took place sends the next
             # investigation the wrong way.
-            return " (a new device to keep awake)"
+            #
+            # Cold: a speaker that has just been plugged in brings its audio
+            # path up with it, exactly like a machine that has just booted.
+            # The pulse can be swallowed by the device getting going and still
+            # be reported as sent, so it gets the same second one - see
+            # FOLLOW_UP_S.
+            return " (a new device to keep awake)", True
         # Intersected with what is still HERE, and that is not a detail. The
         # muted set only ever holds devices that are present, so a muted
         # speaker being unplugged drops out of it exactly like one being
@@ -1250,7 +1262,10 @@ class Engine(threading.Thread):
         # breath. The log would then say the opposite of what happened, which
         # is the one thing it is there to prevent.
         if was_quiet and (was_quiet - self.muted) & here:
-            return " (a device is audible again)"
+            # NOT cold: the device was there the whole time and Windows was
+            # only refusing to let the sound out. Nothing underneath it has
+            # just started, so there is nothing for a second pulse to catch.
+            return " (a device is audible again)", False
         return None
 
     def note_the_mute(self, present):
@@ -1375,8 +1390,14 @@ class Engine(threading.Thread):
                         reason = ""
                     self.send(reason)
                     self.follow_up = cold
-                elif (reason := self.a_device_needs_a_pulse()):
+                elif (news := self.a_device_needs_a_pulse()):
+                    reason, cold = news
                     self.send(reason)
+                    # `or` and not a plain assignment: an un-mute is not cold
+                    # and must not cancel a second pulse still owed to an
+                    # earlier one. Only the pulse branch above pays that debt
+                    # off, and only being switched off throws it away.
+                    self.follow_up = cold or self.follow_up
             except Exception as error:
                 # Deliberately everything: this is the last line before the
                 # thread dies, and a dead engine is invisible to the user.

@@ -296,8 +296,17 @@ DYNAMICKÁ KOREKCE HLASITOSTI
   vlastní posuvník). Když ji u některého zařízení přečíst nejde,
   posílá se na něj impulz beze změny.
 
+  Totéž nastane, když jsou zapnuté dva výstupy, které aplikace
+  nedokáže rozlišit — liší se jen číslem portu v názvu a ani
+  jeden se s tvým zařízením neshoduje přesně. Pak nejde říct,
+  který posuvník ke kterému patří, a impulz jde ven beze změny.
+  Do logu se to zapíše řádkem "Two outputs share a name here…".
+
   V logu je pak vidět obojí — nastavená hodnota i to, co se
-  opravdu odeslalo:  "(20 Hz, 1.0 % -> 38.5 %, 0.4 s)".
+  opravdu odeslalo:  "(20 Hz, 1.0 % -> 38.5 %, 0.4 s)". Když
+  šipka chybí a stojí tam jen "(20 Hz, 1.0 %, 0.4 s)", korekce
+  se neuplatnila — buď je vypnutá, nebo platí jedna z výjimek
+  výš.
 
 DVĚ VĚCI, KTERÉ STOJÍ ZA TO VĚDĚT
 
@@ -418,6 +427,20 @@ keep_alive.log (kde leží, je v oddílu 10). Log je vždy anglicky.
       přesně tak, jak je nastavený). Dokud závada trvá, je hláška
       v logu jednou; když se to střídá (chvíli to jde, chvíli
       ne), objeví se pokaždé znovu.
+
+  "Two outputs share a name here, so the volume correction is off
+  for it and the pulse goes out as set: …"
+      Máš zapnuté dva výstupy, které se liší jen číslem portu
+      v názvu, a ani jeden se s tvým vybraným zařízením neshoduje
+      přesně (stane se to typicky chvíli po přepojení do jiného
+      USB portu, kdy Windows ještě drží i ten starý). Nedá se
+      poznat, který posuvník hlasitosti patří ke kterému, a tak
+      se raději nekoriguje vůbec, než podle špatného. Impulzy
+      chodí dál, jen jdou ven přesně jak je nastaveno — takže
+      při nízko stažené hlasitosti nemusí reproduktory probudit.
+      Hláška je v logu jednou na zařízení a zmizí, jakmile se
+      hlasitost zase dá přiřadit; pomůže odpojit ten výstup,
+      který nepoužíváš.
 
   Impulz je slyšet, nebo praská
       Viz oddíl 6.

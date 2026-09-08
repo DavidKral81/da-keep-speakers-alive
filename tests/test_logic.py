@@ -1096,8 +1096,9 @@ def test_the_volume_correction():
     quiet_speaker = "Speakers (4 - USB Advanced Audio Device)"
     loud_speaker = "Headphones (RODE NT-USB+)"
     unknown_speaker = "Monitor (AMD High Definition Audio Device)"
-    # 0.025971 is the real reading from this machine's slider at 4 %.
-    gains = {K._key(quiet_speaker): 0.025971, K._key(loud_speaker): 1.0}
+    # 0.025971 is the real reading from this machine's slider at 4 %. Keyed by
+    # the full name, the way endpoint_state() hands them over.
+    gains = {K._plain(quiet_speaker): 0.025971, K._plain(loud_speaker): 1.0}
     played = []
 
     def record(device, wave):
@@ -1138,8 +1139,8 @@ def test_the_volume_correction():
               abs(loud - 0.01) < 1e-6, f"{loud:.5f}")
         # The whole point, stated as the thing that has to be true: after
         # Windows has done its bit, both arrive at the level that was set.
-        arrives_quiet = quiet * gains[K._key(quiet_speaker)]
-        arrives_loud = loud * gains[K._key(loud_speaker)]
+        arrives_quiet = quiet * gains[K._plain(quiet_speaker)]
+        arrives_loud = loud * gains[K._plain(loud_speaker)]
         check("what ARRIVES is the same 1 % on both",
               abs(arrives_quiet - 0.01) < 1e-4
               and abs(arrives_loud - 0.01) < 1e-4,
@@ -1170,6 +1171,79 @@ def test_the_volume_correction():
         check("and how the device behaved while it did, not only what it was told",
               "[open 0.06 s, write 1.23 s, latency 0.110 s]" in written, written)
 
+        # --- which endpoint the figure is read off -------------------------
+        # The failure this pairing exists for, seen live on 07.09.2026: the
+        # dock came back on a different USB port, so Windows renamed the output
+        # from "(4 - USB ...)" to "(USB ...)" and kept the old endpoint beside
+        # the new one for a while. Both reduce to one key, so the correction
+        # was dropped - and ten pulses went out at the bare setting, each
+        # logged as an ordinary success, while the speakers slept through them.
+        twin_a = "Speakers (4 - USB Advanced Audio Device)"
+        twin_b = "Speakers (USB Advanced Audio Device)"
+        twin_c = "Speakers (5 - USB Advanced Audio Device)"
+        both = {K._plain(twin_a): 0.03, K._plain(twin_b): 0.5}
+        check("the twins share one key, so only the full name tells them apart",
+              K._key(twin_a) == K._key(twin_b) == K._key(twin_c),
+              sorted({K._key(twin_a), K._key(twin_b), K._key(twin_c)}))
+        by_name = (K.gain_for(twin_a, both), K.gain_for(twin_b, both))
+        check("the full name answers, not whichever twin was walked last",
+              by_name == (0.03, 0.5), by_name)
+        # The key still has to answer when the full name cannot: the readings
+        # and the device list are taken on different scans, so a speaker
+        # replugged in between is known to Core Audio under a name the pulse
+        # does not use yet.
+        one_only = {K._plain(twin_a): 0.03}
+        fallback = K.gain_for(twin_b, one_only)
+        check("and the key still answers when the full name is not there",
+              fallback == 0.03, fallback)
+        # ... but only while there is one figure to give. Two different ones
+        # under a single key cannot say which belongs to this device, and
+        # correcting by the wrong one is the one thing this feature must never
+        # do - a speaker at full volume raised by its twin's -30 dB is audible.
+        K.LOG_PATH.write_text("", encoding="utf-8")
+        K._collided_endpoints.clear()
+        clash = K.gain_for(twin_c, both)
+        check("two different figures under one key give none at all",
+              clash is None, clash)
+        # The silent half of the 07.09.2026 failure: the correction switching
+        # itself off left no trace anywhere. The only sign was a missing
+        # "-> 38.5 %" in a log line that otherwise read like a success.
+        said = K.LOG_PATH.read_text(encoding="utf-8")
+        check("and it is said out loud instead of failing silently",
+              "correction" in said and twin_c in said, said.strip() or "(empty)")
+        K.gain_for(twin_c, both)
+        again = K.LOG_PATH.read_text(encoding="utf-8").count("correction")
+        check("once per device, not on every pulse", again == 1, again)
+        # And forgotten as soon as THAT device can be answered for again -
+        # otherwise a collision that clears up and comes back a week later
+        # stays quiet for ever. Asked about twin_c, the one that is actually in
+        # the set: asking about a device that never collided would leave this
+        # green whether the set is ever cleared or not (proved by sabotage - it
+        # was written that way first and caught nothing).
+        settled = dict(both)
+        settled[K._plain(twin_c)] = 0.1     # it has a reading of its own now
+        K.gain_for(twin_c, settled)
+        check("and the complaint is dropped once it can be answered again",
+              K._plain(twin_c) not in K._collided_endpoints,
+              sorted(K._collided_endpoints))
+
+        # The same thing through send(), which is where it actually mattered.
+        K.targets = lambda devices=None: (
+            [{"name": name, "index": i, "samplerate": 48000, "channels": 2}
+             for i, name in enumerate((twin_a, twin_b))], [])
+        K.endpoint_state = lambda: (set(), set(), dict(both))
+        engine.note_the_mute({K._key(twin_a)})
+        played.clear()
+        engine.send(" (test)")
+        peaks = dict(played)
+        check("two ports of one model each get their OWN correction",
+              abs(peaks[twin_a] - 0.01 / 0.03) < 1e-6
+              and abs(peaks[twin_b] - 0.01 / 0.5) < 1e-6,
+              {n: round(p, 5) for n, p in peaks.items()})
+        K.targets = three_devices
+        K.endpoint_state = lambda: (set(), set(), dict(gains))
+        engine.note_the_mute(set())
+
         # A reading that fails must drop the attenuations rather than keep
         # them: they are a measurement of a moment, and correcting by a stale
         # one raises the pulse on the strength of a slider position that may
@@ -1188,6 +1262,7 @@ def test_the_volume_correction():
     finally:
         K.play, K.targets = saved_play, saved_targets
         K.endpoint_state = saved_state
+        K._collided_endpoints.clear()
         (engine.gains, engine.error_items, engine.retries, engine.seen,
          engine.muted) = saved_engine
         K.CFG.clear()
@@ -1401,7 +1476,7 @@ def test_one_endpoint_that_will_not_answer():
             # Keeping the pointer for later reads freed memory - it is
             # released as soon as the walk moves on, and using it afterwards
             # took the whole run down with an access violation.
-            walked.append(K._key(K._friendly_name(device)))
+            walked.append(K._friendly_name(device))
             return len(walked) % 2 == 1, 0.5 if len(walked) % 2 else 1.0
 
         K._endpoint_volume = every_other_one_is_muted
@@ -1418,14 +1493,24 @@ def test_one_endpoint_that_will_not_answer():
               sorted(unsure))
         # Every endpoint that answered has to have an attenuation, muted or
         # not - the correction is for the ones that are NOT muted, so counting
-        # only the muted ones would be exactly backwards. Keys, not visits:
-        # _key() drops the port number, so two outputs of one model share one.
-        walked_keys = set(walked)
+        # only the muted ones would be exactly backwards. The mute sets are
+        # keyed, because they are matched against the device list; the
+        # attenuations are held under the full name, so they are compared as
+        # such and only reduced to keys where the two have to line up.
+        # No check here that the attenuations are held under the FULL name:
+        # on a machine whose outputs happen to carry no port number in their
+        # names - which is this one whenever the dock is unplugged - _key() and
+        # _plain() return the same string, and such a check passes over keyed
+        # readings just as happily. Proved by sabotage: keying them by _key()
+        # again left it green. It is made where it can be made to fail, in the
+        # twins below, where the names are stood in for and do differ.
+        walked_keys = {K._key(name) for name in walked}
         check("every readable endpoint came back with an attenuation",
-              set(gains) == walked_keys - unsure,
+              {K._key(name) for name in gains} == walked_keys - unsure,
               f"gains={sorted(gains)} walked={sorted(walked_keys)}")
         check("including the ones that are not muted",
-              bool(set(gains) - everything) or not (walked_keys - everything),
+              bool({K._key(n) for n in gains} - everything)
+              or not (walked_keys - everything),
               f"gains={sorted(gains)} muted={sorted(everything)}")
 
         asked = []
@@ -1454,7 +1539,7 @@ def test_one_endpoint_that_will_not_answer():
         # would be indistinguishable from a real reading of full volume, and
         # the correction would then "put back" something nobody measured.
         check("and it is left OUT of the attenuations rather than guessed",
-              not (unsure_after & set(gains_after)),
+              not (unsure_after & {K._key(n) for n in gains_after}),
               f"unsure={sorted(unsure_after)} gains={sorted(gains_after)}")
 
         # The counter-case: without a name there is no way to say which device
@@ -1469,11 +1554,10 @@ def test_one_endpoint_that_will_not_answer():
             K._friendly_name = saved_name
 
         # Two outputs of the SAME model, plugged in at once. _key() drops the
-        # port number, so both reduce to one key and the walk leaves two
-        # different attenuations behind it - in an order Core Audio decides.
-        # Correcting by the wrong one is the one thing this feature must never
-        # do: a speaker at full volume raised by its twin's -30 dB comes out
-        # audible. So the figure is dropped and that device is not corrected.
+        # port number, so both reduce to one key - and keying the readings that
+        # way lost one of them to the other, in an order Core Audio decides.
+        # Under the full name both survive, which is what lets gain_for() give
+        # each device its own figure instead of dropping the correction.
         saved_name = K._friendly_name
         try:
             twins = ["Speakers (2- USB Audio Device)",
@@ -1493,21 +1577,27 @@ def test_one_endpoint_that_will_not_answer():
             answer = K.endpoint_state()
             if answer is not None:
                 _, _, twin_gains = answer
-                check("two outputs sharing a key get NO correction at all",
-                      K._key(twins[0]) not in twin_gains, twin_gains)
-                check("proved: without that they would share one figure",
+                check("proved: the twins do share one key",
                       len({K._key(n) for n in twins}) == 1,
                       sorted({K._key(n) for n in twins}))
-
-            # ... but when both read the same, there is nothing to be wrong
-            # about, and dropping the figure would cost a correction for no
-            # reason.
-            K._endpoint_volume = lambda device: (False, 0.25)
-            answer = K.endpoint_state()
-            if answer is not None:
-                _, _, same_gains = answer
-                check("equal readings are kept - either one is right",
-                      same_gains.get(K._key(twins[0])) == 0.25, same_gains)
+                # The stand-in hands out the two names in turn, so both were
+                # really seen only when the walk took at least two steps - a
+                # machine with one output would only ever see the first.
+                if len(walk) >= 2:
+                    check("both readings survive instead of one erasing the "
+                          "other",
+                          {K._plain(n) for n in twins} <= set(twin_gains),
+                          sorted(twin_gains))
+                    check("and each keeps its own figure",
+                          twin_gains.get(K._plain(twins[0])) !=
+                          twin_gains.get(K._plain(twins[1])),
+                          twin_gains)
+                    # What that buys: the device being pulsed is corrected by
+                    # its own reading, not by whichever twin was walked last.
+                    check("so a pulse is corrected by the right one of them",
+                          K.gain_for(twins[0], twin_gains) ==
+                          twin_gains[K._plain(twins[0])],
+                          (K.gain_for(twins[0], twin_gains), twin_gains))
         finally:
             K._friendly_name = saved_name
 

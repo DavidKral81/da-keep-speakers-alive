@@ -348,6 +348,18 @@ def default_output():
         return None if index is None or index < 0 else int(index)
 
 
+def _plain(name):
+    """A device name with NOTHING dropped - only case and edges evened out.
+
+    The narrow counterpart to _key(): it still tells two ports of one model
+    apart, which is what makes it the right thing to try first when the
+    question is about one particular endpoint rather than about a saved
+    choice. Both go through here, so the two can never disagree about case
+    or stray spaces.
+    """
+    return name.casefold().strip()
+
+
 def _key(name):
     """A device name reduced to what stays the same between reconnections.
 
@@ -356,10 +368,15 @@ def _key(name):
     The number sits either inside the brackets or right at the front
     ("3 - XG27ACS (AMD High Definition Audio Device)"); both are dropped, so
     the saved choice still matches.
+
+    What it buys costs something: two outputs of one model plugged in at once
+    reduce to ONE key. That is the right trade for finding a saved device
+    again, and the wrong one for reading a figure off a particular endpoint -
+    see gain_for(), which asks with the full name first.
     """
     without_number = re.sub(r"\(\s*\d+\s*-\s*", "(", name)
     without_number = re.sub(r"^\s*\d+\s*-\s*", "", without_number)
-    return without_number.casefold().strip()
+    return _plain(without_number)
 
 
 def find_output(name, devices=None):
@@ -466,6 +483,7 @@ _PKEY_FRIENDLY_NAME = _PROPERTYKEY(
 
 _endpoint_problem = None                # the last failure, so the log gets it once
 _quiet_endpoints = set()                # which ones already said so, same reason
+_collided_endpoints = set()             # and which ones lost their correction
 
 
 def _slot(iface, index, restype, argtypes):
@@ -559,7 +577,15 @@ def _endpoint_volume(device):
 
 
 def _read_endpoints():
-    """Ask Core Audio about every active output. Raises on any failure."""
+    """Ask Core Audio about every active output. Raises on any failure.
+
+    The two mute sets are keyed by _key(), because they are matched against the
+    list of devices to keep awake and have to survive a device being replugged
+    into another port. The attenuations are keyed by the FULL name instead:
+    they are a reading off one particular endpoint, and _key() would fold two
+    ports of one model into a single entry where the last one walked wins.
+    Which of the two to use is decided in gain_for(), not here.
+    """
     enumerator = ctypes.c_void_p()
     result = _ole32.CoCreateInstance(
         ctypes.byref(_CLSID_ENUMERATOR), None, _CLSCTX_ALL,
@@ -577,13 +603,6 @@ def _read_endpoints():
             _com(collection, 3, (ctypes.POINTER(wintypes.UINT),),
                  ctypes.byref(count))                # GetCount
             silent, unsure, gains = set(), set(), {}
-            # Keys that two present endpoints share, which _key() makes
-            # possible: it drops the port number, so two outputs of the same
-            # model reduce to one key. Their attenuations are then two
-            # different numbers for one key, and there is no way to tell which
-            # belongs to the device being pulsed - so neither is used. See
-            # below where these are dropped again.
-            collided = set()
             for position in range(count.value):
                 device = ctypes.c_void_p()
                 _com(collection, 4, (wintypes.UINT,
@@ -601,14 +620,17 @@ def _read_endpoints():
                     # tell". That is deliberate. The alternative - skipping the
                     # endpoint - would drop it out of the answer, which is the
                     # very thing the previous line guards against.
-                    name = _key(_friendly_name(device))
+                    full_name = _friendly_name(device)
+                    name = _key(full_name)
                     try:
                         quiet, gain = _endpoint_volume(device)
                         if quiet:
                             silent.add(name)
-                        if name in gains and gains[name] != gain:
-                            collided.add(name)
-                        gains[name] = gain
+                        # Under the full name, so two ports of one model each
+                        # keep their own reading instead of overwriting one
+                        # another. gain_for() is what turns this back into an
+                        # answer about a device the app wants to pulse.
+                        gains[_plain(full_name)] = gain
                     except OSError:
                         # One endpoint refusing to answer must not throw away
                         # what the others said - a device being unplugged
@@ -639,23 +661,12 @@ def _read_endpoints():
                                 f"pulse: {name}")
                 finally:
                     _release(device)
-            # Two present outputs of the same model sharing one key leave two
-            # different attenuations behind, and the last one walked wins -
-            # an order Core Audio decides, not this app. Correcting a pulse by
-            # the wrong one of them is worse than not correcting it: a speaker
-            # at full volume would be raised by its twin's -32 dB and come out
-            # audible, which is the one promise this feature makes. So the
-            # figure is dropped and that device is simply not corrected.
-            #
-            # Equal readings are left alone - then it does not matter which of
-            # the two the answer came from.
-            for name in collided:
-                gains.pop(name, None)
             # Anything that answered this time is allowed to complain again if
             # it stops answering later. Kept as a difference rather than
             # cleared outright, so a device that is STILL refusing does not
-            # write its line on every scan.
-            _quiet_endpoints.difference_update(set(gains) - unsure)
+            # write its line on every scan. Keyed like the sets it is compared
+            # against, which the attenuations are not - hence _key() here.
+            _quiet_endpoints.difference_update({_key(n) for n in gains} - unsure)
             return silent, unsure, gains
         finally:
             _release(collection)
@@ -721,6 +732,53 @@ def endpoint_state():
 
 def periods(freq, duration):
     return duration * float(freq)
+
+
+def gain_for(name, gains):
+    """What Windows multiplies `name` by, or None when it cannot be said.
+
+    `gains` comes from endpoint_state() and is keyed by the full endpoint name.
+    Asked in two steps, and the order is the whole point:
+
+      1. The FULL name. Two ports of one model differ only by the number
+         Windows writes into the name, so this is the one question that can
+         tell them apart - and the answer is then about the device being
+         pulsed, not about its twin.
+      2. Failing that, _key(), which drops the port number. This is not a
+         nicety: the attenuations are read on one scan and the device list on
+         another, so a speaker replugged in between is known to Core Audio
+         under a name the pulse no longer uses. Without this step the
+         correction would drop out for as long as that lasted.
+
+    Step 2 only answers when every endpoint sharing the key read the SAME - one
+    key with two different figures cannot say which belongs to this device, and
+    correcting by the wrong one is the single thing this feature must never do
+    (a speaker at full volume raised by its twin's -32 dB comes out audible).
+    So it gives up and says so out loud: with the correction switched on and
+    silently not happening, the pulse goes out at the setting itself, which on
+    a slider turned down is inaudible - speakers sleep through it while the log
+    reports pulse after pulse. That is not a hypothetical; it is what happened
+    on 07.09.2026, and the only sign of it anywhere was a missing "-> 38.5 %"
+    in the log.
+
+    Said once per device per collision, like every other repeating message
+    here, and forgotten again as soon as that device can be answered for.
+    """
+    plain = _plain(name)
+    answer = gains.get(plain)
+    if answer is None:
+        matches = {gain for other, gain in gains.items()
+                   if _key(other) == _key(name)}
+        if len(matches) == 1:
+            answer = matches.pop()
+        elif len(matches) > 1:
+            if plain not in _collided_endpoints:
+                _collided_endpoints.add(plain)
+                log(f"Two outputs share a name here, so the volume correction "
+                    f"is off for it and the pulse goes out as set: {name}")
+            return None
+    _collided_endpoints.discard(plain)
+    return answer
 
 
 # The loudest pulse the correction below is allowed to build. Full scale, so
@@ -941,10 +999,12 @@ class Engine(threading.Thread):
         # Audio would not say. Either way the next look only fills it in, so a
         # device that was muted all along does not earn a pulse for it.
         self.muted = None
-        # How much of the pulse Windows lets through, per device key, from the
-        # same look that filled `muted` in. A device that is not in here has no
-        # known attenuation, which is not the same as none: corrected_amp()
-        # leaves the setting alone rather than inventing a figure.
+        # How much of the pulse Windows lets through, per full endpoint name,
+        # from the same look that filled `muted` in. Asked through gain_for(),
+        # which is where the full name and the key are tried in that order. A
+        # device it cannot answer for has no known attenuation, which is not
+        # the same as none: corrected_amp() leaves the setting alone rather
+        # than inventing a figure.
         self.gains = {}
         self.scanned_at = 0.0           # monotonic, when the list was last read
 
@@ -1085,8 +1145,8 @@ class Engine(threading.Thread):
                     # Per device, not once for the pulse: the volume slider is
                     # a property of the endpoint, so two chosen speakers can
                     # need entirely different corrections.
-                    amp = corrected_amp(asked, self.gains.get(
-                        _key(device["name"])))
+                    amp = corrected_amp(asked,
+                                        gain_for(device["name"], self.gains))
                     if amp != asked:
                         raised.append(amp)
                 wave = make_pulse(CFG.get("freq_hz", 20),

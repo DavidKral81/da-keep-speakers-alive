@@ -308,8 +308,17 @@ DYNAMIC VOLUME CORRECTION
   own slider in Windows). Where it cannot be read, that device gets
   the pulse exactly as set.
 
+  The same happens when two outputs are on that the app cannot tell
+  apart - they differ only by the port number in the name, and
+  neither matches your device exactly. There is then no saying which
+  slider belongs to which, so the pulse goes out unchanged. The log
+  gets a line saying "Two outputs share a name here...".
+
   The log then shows both the setting and what really went out:
-  "(20 Hz, 1.0 % -> 38.5 %, 0.4 s)".
+  "(20 Hz, 1.0 % -> 38.5 %, 0.4 s)". When the arrow is missing and
+  the line reads just "(20 Hz, 1.0 %, 0.4 s)", the correction did
+  not apply - either it is switched off, or one of the exceptions
+  above is in force.
 
 TWO THINGS WORTH KNOWING
 
@@ -430,6 +439,19 @@ Look at "Status" in the window first, then at keep_alive.log
       the pulse goes out exactly as set). While the fault lasts
       the log holds one such line; if it comes and goes, the line
       appears again each time it comes back.
+
+  "Two outputs share a name here, so the volume correction is off
+  for it and the pulse goes out as set: ..."
+      Two outputs are on that differ only by the port number in
+      their names, and neither matches your chosen device exactly
+      (this typically happens for a while after replugging into a
+      different USB port, when Windows still holds the old one).
+      There is no telling which volume slider belongs to which, so
+      nothing is corrected rather than corrected by the wrong one.
+      Pulses carry on, they just go out exactly as set - which with
+      the volume turned well down may not wake the speakers. One
+      line per device, gone as soon as the volume can be matched up
+      again; unplugging the output you are not using clears it.
 
   The pulse is audible, or it crackles
       See section 6.

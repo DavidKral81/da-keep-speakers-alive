@@ -154,15 +154,20 @@ JAK ČASTO POSÍLAT IMPULZ
     připojené i odtlumené zařízení aplikace zpozoruje
     nejpozději do 10 sekund.
     Ve třech z těch případů — po spuštění, po probuzení a při
-    připojení reproduktoru — jde impulz dvakrát: hned a ještě
-    jednou za 15 sekund. Ve všech třech totiž zvuková cesta
-    teprve naskakuje, a první impulz se v tom rozjezdu může
-    přehrát naprázdno: aplikace ho vyhodnotí jako úspěšný
-    a reproduktory přesto spí dál. Druhý impulz je pojistka
-    přesně na tenhle případ; v logu je označený jako "again".
-    Slyšet není ani jeden.
+    připojení reproduktoru — jedním impulzem to nekončí: opakuje
+    se ještě první minutu, každých 15 sekund. Ve všech třech
+    totiž zvuková cesta teprve naskakuje, a impulz se v tom
+    rozjezdu může přehrát naprázdno: aplikace ho vyhodnotí jako
+    úspěšný a reproduktory přesto spí dál. Opakování je pojistka
+    přesně na tenhle případ; v logu jsou ty impulzy označené
+    jako "again". Slyšet není ani jeden.
 
-    Zrušené ztlumení druhý impulz nedostává — zařízení tam bylo
+    Vypnout to jde zaškrtávátkem "Po probuzení počítače opakovat
+    impulz první minutu každých 15 sekund" přímo v téhle sekci.
+    Výchozí stav je zapnuto. Po vypnutí zůstane po probuzení
+    jediný impulz — ten, co jde hned.
+
+    Zrušené ztlumení opakování nedostává — zařízení tam bylo
     celou dobu, jen z něj Windows nepouštěla zvuk, takže není
     co rozjíždět.
 

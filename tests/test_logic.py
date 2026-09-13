@@ -360,7 +360,7 @@ def test_retry_after_a_failed_pulse():
         K.CFG["interval_s"] = 300
         # gap() answers for the follow-up as well, and a pulse owed from an
         # earlier test would shorten every figure below.
-        engine.follow_up = False
+        engine.follow_up = 0
         # Both of these decide due_in() before the gap ever gets a say, and
         # both come from the user's real settings file. With the main switch
         # off due_in() returns None and the check below would blow up on a
@@ -420,8 +420,13 @@ def test_retry_after_a_failed_pulse():
         # to win: both exist to stop the speakers being left asleep.
         K.CFG["interval_s"] = 300
         engine.error_items, engine.retries = [], 0
-        engine.follow_up = True
+        engine.follow_up = 1
         check("a pulse owed a second one comes back within seconds",
+              engine.gap() == engine.FOLLOW_UP_S, engine.gap())
+        # The last one owed shortens it exactly as much as the first: the count
+        # says HOW MANY are still coming, never how far apart they are.
+        engine.follow_up = engine.FOLLOW_UPS
+        check("and the gap is the same whether one is owed or all of them",
               engine.gap() == engine.FOLLOW_UP_S, engine.gap())
         engine.error_items, engine.retries = [("err_no_device", {})], 1
         check("and a retry that is sooner still wins over it",
@@ -431,7 +436,7 @@ def test_retry_after_a_failed_pulse():
         engine.error_items, engine.retries = [], 0
         check("neither is ever stretched past the interval itself",
               engine.gap() == 10, engine.gap())
-        engine.follow_up = False
+        engine.follow_up = 0
     finally:
         K.targets, K.log, K.play = saved_targets, saved_log, saved_play
         engine.retries, engine.error_items, engine.last_at, engine.partly = saved
@@ -610,8 +615,13 @@ def test_the_engine_loop_does_its_job():
         engine.send = pulses
         engine.check_for_a_break = one_turn_only
         K.CFG["interval_s"] = 3600
+        # Set on purpose, not taken from the user's own settings file: with the
+        # switch off every check below would pass for the wrong reason. The
+        # project has been caught by exactly this three times (CFG["log"],
+        # CFG["active"] twice).
+        K.CFG["repeat_after_wake"] = True
         engine.woke_up = False
-        engine.follow_up = False
+        engine.follow_up = 0
         engine.error_items, engine.retries = [], 0
         engine.last_at = 0.0            # nothing sent yet - the app just started
         sent.clear()
@@ -619,31 +629,66 @@ def test_the_engine_loop_does_its_job():
         engine.run()
         check("the first pulse after a start goes out at once", sent == [""],
               sent)
-        check("and it leaves a second one owed", engine.follow_up is True,
-              engine.follow_up)
+        check("and it leaves a whole minute of them owed",
+              engine.follow_up == engine.FOLLOW_UPS, engine.follow_up)
         check("due within seconds, not at the end of the interval",
               0 < engine.due_in() <= engine.FOLLOW_UP_S, engine.due_in())
 
-        # The follow-up itself, and the log has to say what it is: two pulses
-        # a quarter of a minute apart otherwise read like a fault.
-        engine.last_at -= engine.FOLLOW_UP_S + 1
-        sent.clear()
-        engine.stop.clear()
-        engine.run()
-        check("the second pulse really goes out",
-              sent == [" (again, the first one may not have been heard)"], sent)
-        check("and it does not owe a third", engine.follow_up is False,
+        # Every one of them has to go out, and the log has to say what they
+        # are: pulses a quarter of a minute apart otherwise read like a fault.
+        #
+        # COUNTED, not assumed. 10.09.2026 is the reason there is a count at
+        # all: a wake-up pulse and one follow-up were both logged as successes
+        # and the speakers still slept through both, because sixteen seconds of
+        # cover is not enough for an audio path that is still starting up. A
+        # check that only asks "did a second one go?" passes just as happily
+        # over the version that stops after that second one.
+        engine.scanned_at = K.time.monotonic()      # keep the device scan out
+        backing = 0
+        for _ in range(engine.FOLLOW_UPS + 3):      # deliberately a few extra
+            engine.last_at -= engine.FOLLOW_UP_S + 1
+            sent.clear()
+            engine.stop.clear()
+            engine.run()
+            if not sent:
+                break
+            backing += 1
+            check("each backing pulse says what it is",
+                  sent == [" (again, the first one may not have been heard)"],
+                  sent)
+        check("a cold pulse is backed up for the whole minute",
+              backing == engine.FOLLOW_UPS, backing)
+        check("and then nothing more is owed", engine.follow_up == 0,
               engine.follow_up)
 
         # Which is the whole of it: owing one for ever would pulse every
         # fifteen seconds until the app was closed.
-        engine.scanned_at = K.time.monotonic()      # keep the device scan out
         engine.last_at -= engine.FOLLOW_UP_S + 1
         sent.clear()
         engine.stop.clear()
         engine.run()
         check("then it goes back to the interval the user chose", sent == [],
               sent)
+
+        # --- and the switch that turns the whole of it off -----------------
+        K.CFG["repeat_after_wake"] = False
+        engine.woke_up = False
+        engine.follow_up = 0
+        engine.error_items, engine.retries = [], 0
+        engine.last_at = 0.0
+        sent.clear()
+        engine.stop.clear()
+        engine.run()
+        check("switched off, the cold pulse itself still goes out",
+              sent == [""], sent)
+        check("but nothing is owed behind it", engine.follow_up == 0,
+              engine.follow_up)
+        engine.last_at -= engine.FOLLOW_UP_S + 1
+        sent.clear()
+        engine.stop.clear()
+        engine.run()
+        check("and no backing pulse follows", sent == [], sent)
+        K.CFG["repeat_after_wake"] = True
         engine.check_for_a_break = saved_check
 
         engine.send = saved_send
@@ -932,7 +977,10 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
 
         engine.check_for_a_break = one_turn_only
         engine.send = one_turn_then_stop
-        engine.follow_up = False
+        # Set, not inherited from the user's settings: with the switch off the
+        # follow-up checks below would pass without proving anything.
+        K.CFG["repeat_after_wake"] = True
+        engine.follow_up = 0
         engine.stop.clear()
         engine.run()
         engine.check_for_a_break = saved_check_break
@@ -940,9 +988,9 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
               sent == [" (a new device to keep awake)"], sent)
         # A speaker just plugged in brings its audio path up with it, so that
         # first pulse is as likely to be swallowed as the one after a boot -
-        # and gets the same second one.
-        check("a speaker that just turned up is owed a second pulse too",
-              engine.follow_up is True, engine.follow_up)
+        # and gets the same backing minute.
+        check("a speaker that just turned up is backed up too",
+              engine.follow_up == engine.FOLLOW_UPS, engine.follow_up)
 
         # The same wiring for the other reason: nothing arrives, a device is
         # merely un-muted, and the loop still has to be the one that sends it.
@@ -953,7 +1001,7 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
         sent.clear()
         engine.check_for_a_break = one_turn_only
         engine.send = one_turn_then_stop
-        engine.follow_up = False
+        engine.follow_up = 0
         engine.last_at = K.time.monotonic()
         engine.stop.clear()
         engine.run()
@@ -964,7 +1012,7 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
         # and Windows was only refusing to let the sound out. Owing a second
         # pulse for it would double every un-mute for nothing.
         check("an un-mute is not cold, so it owes no second pulse",
-              engine.follow_up is False, engine.follow_up)
+              engine.follow_up == 0, engine.follow_up)
 
         # And it must not cancel one that is still owed to an earlier pulse -
         # that debt belongs to a different moment and a different device.
@@ -975,14 +1023,18 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
         sent.clear()
         engine.check_for_a_break = one_turn_only
         engine.send = one_turn_then_stop
-        engine.follow_up = True
+        # Part way through a run of them on purpose, not at the full count: a
+        # version that reset the debt to FOLLOW_UPS on every un-mute would pass
+        # a check that only asked "is anything still owed?", and would then go
+        # on backing up a pulse that never happened.
+        engine.follow_up = 2
         engine.last_at = K.time.monotonic()
         engine.stop.clear()
         engine.run()
         engine.check_for_a_break = saved_check_break
-        check("nor does it cancel a second pulse already owed",
+        check("nor does it cancel pulses already owed, or add to them",
               sent == [" (a device is audible again)"]
-              and engine.follow_up is True, f"{sent} {engine.follow_up}")
+              and engine.follow_up == 2, f"{sent} {engine.follow_up}")
 
         # Wired in, part two: the REAL send() re-reads the list itself, so it
         # has to leave BOTH watches up to date. Otherwise a device that arrived

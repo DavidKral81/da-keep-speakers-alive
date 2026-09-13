@@ -111,6 +111,12 @@ DEFAULTS = {
     "use_default_device": True,   # follow whatever Windows plays through
     "devices": [],                # extra outputs, remembered by NAME
     "interval_s": 180,
+    # Keep pulsing for a minute after the machine wakes up, or after a speaker
+    # is plugged in - see Engine.FOLLOW_UPS for what that is for. ON by
+    # default, unlike amp_correction: this one does not change what leaves the
+    # machine, only how often an inaudible pulse is repeated in the one moment
+    # it is known to go missing.
+    "repeat_after_wake": True,
     "freq_hz": 20,
     "amp_percent": 1.0,
     # Raise the pulse by whatever the Windows volume slider takes off it, so
@@ -916,7 +922,7 @@ class Engine(threading.Thread):
     BREAK_S = 60
 
     # How long after the FIRST pulse on an audio path that has only just come
-    # up - a cold start, or a wake-up - to send one more.
+    # up - a cold start, or a wake-up - to send another, and how many to send.
     #
     # Measured on 03.09.2026: the machine booted at 20:48:53, the dock's audio
     # endpoints were up at 20:49:16, and the pulse at 20:50:42 was logged as a
@@ -929,12 +935,29 @@ class Engine(threading.Thread):
     # same morning left the louder version of it in the log: the first pulse
     # after a break came back "Invalid sample rate [PaErrorCode -9997]".
     #
-    # Sending it twice costs nothing - the pulse is inaudible by design - and
-    # it is the one thing that was observed to work. Deliberately NOT tied to
-    # a diagnosis: whether the sound was eaten by the audio stack or the
-    # speakers needed a second nudge after half a day asleep, a second pulse
-    # answers both, and neither can be told apart from here.
+    # One follow-up turned out not to be enough. On 10.09.2026 the pulse after
+    # a wake-up AND its follow-up sixteen seconds later were both logged as
+    # successes with the correction applied, and the speakers still had to be
+    # woken by playing something audible a minute or two later. Two pulses
+    # cover sixteen seconds; the path came up somewhere in the rest of the
+    # interval, with nothing going out until it was over.
+    #
+    # That it is the path coming up, and not the pulse being too weak, was
+    # settled on 13.09.2026: the very same pulse - 20 Hz, 0.4 s, 1 %, at the
+    # lowest volume Windows offers - woke speakers that had been silent for 48
+    # minutes, with the machine running normally throughout. Length of sleep is
+    # therefore ruled out, and the failing cases have one thing in common: the
+    # machine had just woken up. Two log entries say the same thing from the
+    # other side - the only AUDCLNT_E_DEVICE_INVALIDATED errors on record both
+    # landed on a pulse marked "after a break", never during a normal run.
+    #
+    # Hence a minute of them instead of one. Sending a pulse costs nothing - it
+    # is inaudible by design - so covering the minute is worth more than the
+    # handful of log lines it leaves. Deliberately NOT tied to a diagnosis any
+    # finer than that: what swallows the sound cannot be told apart from here,
+    # and repeating covers every version of it.
     FOLLOW_UP_S = 15
+    FOLLOW_UPS = 4
 
     # How often to look for a speaker that has just been plugged in - or that
     # Windows has stopped muting. This one cannot run every second like the
@@ -977,12 +1000,13 @@ class Engine(threading.Thread):
         # reset to zero the moment one gets through.
         self.retries = 0
         self.woke_up = False            # the machine was asleep, pulse now
-        # Whether one more pulse is owed shortly, because the last one was the
-        # first on an audio path that had only just come up. Held as a flag
-        # rather than as a deadline of its own: gap() is the single answer to
-        # "when is the next pulse", so the window's countdown, the loop and the
-        # tray all follow this without a second clock to disagree with.
-        self.follow_up = False
+        # How many more pulses are owed shortly, because the last cold one was
+        # the first on an audio path that had only just come up. A count rather
+        # than a deadline of its own: gap() is the single answer to "when is
+        # the next pulse", so the window's countdown, the loop and the tray all
+        # follow this without a second clock to disagree with. Zero means
+        # nothing is owed, which is also why a plain `if` still reads right.
+        self.follow_up = 0
         # The wall clock and the monotonic clock drifting apart is what gives
         # a sleep away - see check_for_a_break().
         self.clock_gap = time.time() - time.monotonic()
@@ -1013,6 +1037,19 @@ class Engine(threading.Thread):
     def interval(self):
         return max(10, int(CFG.get("interval_s", 180)))
 
+    def follow_ups(self):
+        """How many backing pulses a cold pulse owes - 0 when switched off.
+
+        The setting is read here and nowhere else, so it cannot come to mean
+        one thing in the wake-up branch and another in the device scan.
+
+        Switching it off part way through a run of them lets the ones already
+        owed go out - at most a minute of inaudible pulses. Clearing the debt
+        as well would mean the switch reaching into gap(), and "when is the
+        next pulse" has exactly one answer on purpose.
+        """
+        return self.FOLLOW_UPS if CFG.get("repeat_after_wake", True) else 0
+
     def gap(self):
         """How long to wait after the last pulse before sending another.
 
@@ -1025,8 +1062,8 @@ class Engine(threading.Thread):
           wake-up, an output the system has yet to re-register - is caught
           straight away rather than one whole interval later.
         - a pulse that was the first on an audio path which had only just come
-          up owes one more within FOLLOW_UP_S, whether it reported success or
-          not: success there is not proof that anything was heard.
+          up owes FOLLOW_UPS more, one every FOLLOW_UP_S, whether it reported
+          success or not: success there is not proof that anything was heard.
 
         Never longer than the interval either way: at 30 s the 60 s retry step
         would push the pulse further away than doing nothing at all.
@@ -1311,7 +1348,7 @@ class Engine(threading.Thread):
             # Cold: a speaker that has just been plugged in brings its audio
             # path up with it, exactly like a machine that has just booted.
             # The pulse can be swallowed by the device getting going and still
-            # be reported as sent, so it gets the same second one - see
+            # be reported as sent, so it gets the same backing pulses - see
             # FOLLOW_UP_S.
             return " (a new device to keep awake)", True
         # Intersected with what is still HERE, and that is not a detail. The
@@ -1412,11 +1449,11 @@ class Engine(threading.Thread):
                     # and by the time this is switched back on the slider may
                     # have been anywhere. send() reads them fresh anyway.
                     self.gains = {}
-                    # A second pulse owed before the app was switched off is
-                    # dropped as well. It exists to back up ONE pulse that has
-                    # just gone out; firing it whenever the app comes back
-                    # would make it a pulse of its own, out of any context.
-                    self.follow_up = False
+                    # Pulses owed before the app was switched off are dropped
+                    # as well. They exist to back up ONE pulse that has just
+                    # gone out; firing them whenever the app comes back would
+                    # make them pulses of their own, out of any context.
+                    self.follow_up = 0
                 elif self.woke_up or due <= 0:
                     # Being very late means the process was frozen - the
                     # machine was asleep. The speakers slept through it too,
@@ -1434,10 +1471,11 @@ class Engine(threading.Thread):
                     # to start again. Worked out BEFORE send(), which is what
                     # sets last_at.
                     cold = after_a_break or not self.last_at
-                    # Taken down before the pulse and put back up only for a
-                    # cold one, so the follow-up cannot owe a follow-up of its
-                    # own and pulse every fifteen seconds for ever.
-                    owed, self.follow_up = self.follow_up, False
+                    # Taken down before the pulse and put back up below, so a
+                    # follow-up can only ever pay the debt down - it cannot
+                    # raise one of its own and pulse every fifteen seconds for
+                    # ever.
+                    owed, self.follow_up = self.follow_up, 0
                     if after_a_break:
                         reason = " (after a break)"
                     elif owed:
@@ -1449,15 +1487,22 @@ class Engine(threading.Thread):
                     else:
                         reason = ""
                     self.send(reason)
-                    self.follow_up = cold
+                    # A cold pulse starts the whole minute over; any other one
+                    # is itself a repayment, so it takes the debt down by one.
+                    # max() and not a bare subtraction: `owed` is never above
+                    # FOLLOW_UPS, but writing it this way means a cold pulse in
+                    # the middle of a run of them cannot shorten the cover.
+                    self.follow_up = (max(self.follow_ups(), owed) if cold
+                                      else max(0, owed - 1))
                 elif (news := self.a_device_needs_a_pulse()):
                     reason, cold = news
                     self.send(reason)
-                    # `or` and not a plain assignment: an un-mute is not cold
-                    # and must not cancel a second pulse still owed to an
-                    # earlier one. Only the pulse branch above pays that debt
-                    # off, and only being switched off throws it away.
-                    self.follow_up = cold or self.follow_up
+                    # max() and not a plain assignment: an un-mute is not cold
+                    # and must not cancel pulses still owed to an earlier one.
+                    # Only the pulse branch above pays that debt down, and only
+                    # being switched off throws it away.
+                    self.follow_up = (max(self.follow_ups(), self.follow_up)
+                                      if cold else self.follow_up)
             except Exception as error:
                 # Deliberately everything: this is the last line before the
                 # thread dies, and a dead engine is invisible to the user.
@@ -2312,6 +2357,14 @@ class Settings:
                      [(interval_label(s), s) for s in self.INTERVALS],
                      int(CFG.get("interval_s", 180)),
                      lambda v: self._set("interval_s", v))
+        self._switch(card, tx("sw_wake_repeat"), "repeat_after_wake")
+        # Indented to line up with the label beside the mark, so it reads as
+        # this switch's explanation and not as a new paragraph in the card -
+        # the same as the correction switch in the signal card.
+        tk.Label(card, text=tx("sw_wake_repeat_desc"), bg=self.CARD,
+                 fg=self.DIM, font=("Segoe UI", 9), justify="left",
+                 wraplength=self.CARD_WIDTH - 70).pack(
+                     anchor="w", padx=(marks.SIZE + 9, 0), pady=(0, 2))
 
         # --- 4. signal -------------------------------------------------
         # Frequency, then length, then volume - and the volume last because the

@@ -645,11 +645,15 @@ def _read_endpoints():
                         # direction, because it then dropped out again on the
                         # next good reading and looked like an un-mute.
                         #
-                        # It gets no entry in `gains` either, rather than a
-                        # made-up one: an unknown attenuation must leave the
-                        # pulse exactly as the user set it, and a guess of 1.0
-                        # here would be indistinguishable from a real full
-                        # volume reading.
+                        # In `gains` it is None - "would not say" - rather
+                        # than a made-up figure or no entry at all. A guess of
+                        # 1.0 would be indistinguishable from a real full
+                        # volume reading. And no entry would be worse than it
+                        # looks: gain_for() would then fall back to the key and
+                        # hand this device the reading of a twin of the same
+                        # model, which may be turned right down - raising a
+                        # pulse on a speaker at full volume until it is heard.
+                        gains[_plain(full_name)] = None
                         unsure.add(name)
                         # And it is said out loud. For this one device both
                         # extras are off - no pulse when it is un-muted, no
@@ -763,18 +767,27 @@ def gain_for(name, gains):
     So it gives up and says so out loud: with the correction switched on and
     silently not happening, the pulse goes out at the setting itself, which on
     a slider turned down is inaudible - speakers sleep through it while the log
-    reports pulse after pulse. That is not a hypothetical; it is what happened
-    on 07.09.2026, and the only sign of it anywhere was a missing "-> 38.5 %"
-    in the log.
+    reports pulse after pulse. That is not a hypothetical; it has happened, and
+    the only sign of it anywhere was the missing "-> ... %" in the log.
 
     Said once per device per collision, like every other repeating message
     here, and forgotten again as soon as that device can be answered for.
+
+    A reading of None means the endpoint was there and would not say. For the
+    device itself that is the answer - it is never swapped for a twin's figure.
+    And under the key it stops the fallback as well: the one that would not
+    say may be the very endpoint this device is, so the others cannot speak
+    for it. Neither is a collision; the walk has already logged the refusal.
     """
     plain = _plain(name)
-    answer = gains.get(plain)
-    if answer is None:
+    if plain in gains:
+        answer = gains[plain]
+    else:
+        answer = None
         matches = {gain for other, gain in gains.items()
                    if _key(other) == _key(name)}
+        if None in matches:
+            return None
         if len(matches) == 1:
             answer = matches.pop()
         elif len(matches) > 1:
@@ -869,8 +882,8 @@ def play(device, wave):
     Returns (opening, writing, latency) in seconds. Those three go into the
     log, and they are there for one reason: a pulse can be reported as sent
     and still not be heard, and nothing else in the record tells the two
-    apart. Seen on 03.09.2026 - the first pulse after a cold start was logged
-    as a plain success at 20:50:42, the identical one at 20:55:44 was what
+    apart. It has happened: the first pulse after a cold start was logged as a
+    plain success, and it was the identical one an interval later that
     actually woke the speakers. PortAudio only ever answers for its own ring
     buffer, never for what left the machine (the same trap as the crackling,
     where underflow=False was true and meaningless), so the closest thing to
@@ -924,38 +937,42 @@ class Engine(threading.Thread):
     # How long after the FIRST pulse on an audio path that has only just come
     # up - a cold start, or a wake-up - to send another, and how many to send.
     #
-    # Measured on 03.09.2026: the machine booted at 20:48:53, the dock's audio
-    # endpoints were up at 20:49:16, and the pulse at 20:50:42 was logged as a
-    # plain success with the volume correction applied - yet the speakers
-    # stayed asleep. The next one, identical in every respect, woke them at
-    # 20:55:45. The device being late is ruled out by those timestamps: it had
-    # been ready for 86 seconds. What is left is that the first stream on a
-    # path nothing has played on since boot can be swallowed while Windows
-    # gets the device going, and PortAudio reports success either way. The
-    # same morning left the louder version of it in the log: the first pulse
-    # after a break came back "Invalid sample rate [PaErrorCode -9997]".
+    # Seen in a log: after a boot, a pulse that went out well over a minute
+    # after the audio endpoints had come up was logged as a plain success with
+    # the volume correction applied - yet the speakers stayed asleep, and the
+    # next one, identical in every respect, woke them. The device being late
+    # is ruled out by that: it had been ready for most of a minute and a half.
+    # What is left is that the first stream on a path nothing has played on
+    # since boot can be swallowed while Windows gets the device going, and
+    # PortAudio reports success either way. The louder version of it shows up
+    # in logs too: a first pulse after a break coming back "Invalid sample rate
+    # [PaErrorCode -9997]".
     #
-    # One follow-up turned out not to be enough. On 10.09.2026 the pulse after
-    # a wake-up AND its follow-up sixteen seconds later were both logged as
-    # successes with the correction applied, and the speakers still had to be
-    # woken by playing something audible a minute or two later. Two pulses
-    # cover sixteen seconds; the path came up somewhere in the rest of the
-    # interval, with nothing going out until it was over.
+    # One follow-up turned out not to be enough. A pulse after a wake-up AND
+    # its follow-up sixteen seconds later were both logged as successes with
+    # the correction applied, and the speakers still had to be woken by
+    # playing something audible a minute or two later. Two pulses cover
+    # sixteen seconds; the path came up somewhere in the rest of the interval,
+    # with nothing going out until it was over.
     #
     # That it is the path coming up, and not the pulse being too weak, was
-    # settled on 13.09.2026: the very same pulse - 20 Hz, 0.4 s, 1 %, at the
-    # lowest volume Windows offers - woke speakers that had been silent for 48
-    # minutes, with the machine running normally throughout. Length of sleep is
+    # settled by the very same pulse - 20 Hz, 0.4 s, 1 %, at the lowest volume
+    # Windows offers - waking speakers that had been silent for most of an
+    # hour, with the machine running normally throughout. Length of sleep is
     # therefore ruled out, and the failing cases have one thing in common: the
-    # machine had just woken up. Two log entries say the same thing from the
-    # other side - the only AUDCLNT_E_DEVICE_INVALIDATED errors on record both
-    # landed on a pulse marked "after a break", never during a normal run.
+    # machine had just woken up. The logs say the same thing from the other
+    # side - AUDCLNT_E_DEVICE_INVALIDATED errors land on pulses marked "after
+    # a break", never during a normal run.
     #
     # Hence a minute of them instead of one. Sending a pulse costs nothing - it
     # is inaudible by design - so covering the minute is worth more than the
     # handful of log lines it leaves. Deliberately NOT tied to a diagnosis any
     # finer than that: what swallows the sound cannot be told apart from here,
     # and repeating covers every version of it.
+    #
+    # The window says "every FOLLOW_UP_S seconds for a minute": the seconds are
+    # filled in from here, the minute is checked by test_logic.py - change one
+    # of these and that check says the wording has to follow.
     FOLLOW_UP_S = 15
     FOLLOW_UPS = 4
 
@@ -1462,20 +1479,39 @@ class Engine(threading.Thread):
                     late = (time.monotonic() - self.last_at - self.gap()
                             if self.last_at else 0)
                     after_a_break = self.woke_up or late > 60
-                    self.woke_up = False
                     # Is this pulse the first one on an audio path that has
                     # only just come up? Either nothing has been sent at all
                     # yet - the app has just started, and on a machine that has
                     # just booted the sound device came up seconds ago - or the
-                    # machine is back from a break and everything below it had
-                    # to start again. Worked out BEFORE send(), which is what
+                    # machine has been asleep and everything below it had to
+                    # start again. Worked out BEFORE send(), which is what
                     # sets last_at.
-                    cold = after_a_break or not self.last_at
-                    # Taken down before the pulse and put back up below, so a
-                    # follow-up can only ever pay the debt down - it cannot
-                    # raise one of its own and pulse every fifteen seconds for
-                    # ever.
-                    owed, self.follow_up = self.follow_up, 0
+                    #
+                    # The sleep is told by woke_up, the clock jump, and NOT by
+                    # being late. Late also happens with the machine running
+                    # the whole time - a pause that has ended, the app switched
+                    # back on, the interval shortened - and there nothing below
+                    # the app has restarted, so a minute of backing pulses
+                    # would have nothing to catch.
+                    cold = self.woke_up or not self.last_at
+                    self.woke_up = False
+                    owed = self.follow_up
+                    # A cold pulse starts the whole minute over; any other one
+                    # is itself a repayment, so it takes the debt down by one -
+                    # which is also why a follow-up cannot raise a debt of its
+                    # own and pulse every fifteen seconds for ever. max() and
+                    # not a bare subtraction: `owed` is never above FOLLOW_UPS,
+                    # but writing it this way means a cold pulse in the middle
+                    # of a run of them cannot shorten the cover.
+                    #
+                    # Settled BEFORE send(), not after it. send() can throw -
+                    # re-reading the device list straight after a wake-up is
+                    # exactly where it would - and the debt must survive that:
+                    # woke_up is already down, so the next turn is no longer
+                    # cold and could never set it again. The failed attempt
+                    # counts as one of the pulses; the rest still go out.
+                    self.follow_up = (max(self.follow_ups(), owed) if cold
+                                      else max(0, owed - 1))
                     if after_a_break:
                         reason = " (after a break)"
                     elif owed:
@@ -1487,22 +1523,17 @@ class Engine(threading.Thread):
                     else:
                         reason = ""
                     self.send(reason)
-                    # A cold pulse starts the whole minute over; any other one
-                    # is itself a repayment, so it takes the debt down by one.
-                    # max() and not a bare subtraction: `owed` is never above
-                    # FOLLOW_UPS, but writing it this way means a cold pulse in
-                    # the middle of a run of them cannot shorten the cover.
-                    self.follow_up = (max(self.follow_ups(), owed) if cold
-                                      else max(0, owed - 1))
                 elif (news := self.a_device_needs_a_pulse()):
                     reason, cold = news
-                    self.send(reason)
                     # max() and not a plain assignment: an un-mute is not cold
                     # and must not cancel pulses still owed to an earlier one.
                     # Only the pulse branch above pays that debt down, and only
-                    # being switched off throws it away.
+                    # being switched off throws it away. Before send(), for the
+                    # reason given in the branch above: a send() that throws
+                    # must not take the backing pulses down with it.
                     self.follow_up = (max(self.follow_ups(), self.follow_up)
                                       if cold else self.follow_up)
+                    self.send(reason)
             except Exception as error:
                 # Deliberately everything: this is the last line before the
                 # thread dies, and a dead engine is invisible to the user.
@@ -1880,7 +1911,7 @@ class PulseBar(tk.Frame):
         # must not change size under the user's hand while it does.
         self.caption.pack(fill="x", pady=(3, 0))
         self.shown = (0.0, "", STATE_COLOUR["ok"])
-        self.canvas.bind("<Configure>", lambda e: self._draw())
+        self.canvas.bind("<Configure>", lambda e=None: self._draw())
 
     def show(self, done, span, error=None, partly=False):
         """`done` and `span` in seconds; span of 0 means nothing is playing.
@@ -2065,7 +2096,8 @@ class Settings:
                                       width=self.canvas.winfo_width())
 
         inner.bind("<Configure>", measured)
-        self.canvas.bind("<Configure>", lambda e: (measured(), self._relayout()))
+        self.canvas.bind("<Configure>",
+                         lambda e=None: (measured(), self._relayout()))
         # Bound to the WINDOW, not with bind_all: a bind_all binding outlives
         # the window it was made for, so opening the settings a second time
         # would scroll two lines per notch, a third time three.
@@ -2310,7 +2342,7 @@ class Settings:
         arrow.place(relx=1.0, rely=0.5, anchor="e", x=-12)
         # clicking the arrow opens the menu directly - more reliable than
         # sending a synthetic event to the menubutton
-        arrow.bind("<Button-1>", lambda e: m["menu"].post(
+        arrow.bind("<Button-1>", lambda e=None: m["menu"].post(
             m.winfo_rootx(), m.winfo_rooty() + m.winfo_height()))
         return var
 
@@ -2357,7 +2389,11 @@ class Settings:
                      [(interval_label(s), s) for s in self.INTERVALS],
                      int(CFG.get("interval_s", 180)),
                      lambda v: self._set("interval_s", v))
-        self._switch(card, tx("sw_wake_repeat"), "repeat_after_wake")
+        # The spacing comes from the engine, never written into the text: the
+        # label would otherwise go on promising the old figure after the
+        # constant changed.
+        self._switch(card, tx("sw_wake_repeat", s=Engine.FOLLOW_UP_S),
+                     "repeat_after_wake")
         # Indented to line up with the label beside the mark, so it reads as
         # this switch's explanation and not as a new paragraph in the card -
         # the same as the correction switch in the signal card.

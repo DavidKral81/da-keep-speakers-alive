@@ -382,6 +382,54 @@ def main():
         step("the signal card reads frequency, length, volume",
              signal_card_in_order)
 
+        def the_repeat_switch():
+            """The switch that repeats the pulse after a wake-up.
+
+            Checked on the built window: that it is there once, under the
+            interval it belongs to, that its label carries the engine's spacing
+            rather than a figure written into the text, that it has its
+            explanation, and that a click reaches the settings file - a switch
+            that redraws its mark and saves nothing looks exactly like one
+            that works.
+            """
+            rows = []
+
+            def walk(widget):
+                for child in widget.winfo_children():
+                    if getattr(child, "key", None) == "repeat_after_wake":
+                        rows.append(child)
+                    walk(child)
+            walk(settings.win)
+            assert len(rows) == 1, f"{len(rows)} repeat switches"
+            row = rows[0]
+            label = [child["text"] for child in row.winfo_children()
+                     if isinstance(child, tk.Label)]
+            wanted = K.tx("sw_wake_repeat", s=K.Engine.FOLLOW_UP_S)
+            assert label == [wanted], label
+            interval = [y for y, text in texts_in_the_window()
+                        if text == K.tx("lbl_interval")]
+            assert interval and row.winfo_rooty() > interval[0], \
+                (interval, row.winfo_rooty())
+            assert any(K.tx("sw_wake_repeat_desc") in text
+                       for _, text in texts_in_the_window()), \
+                "the repeat switch has no explanation under it"
+            was = bool(K.CFG.get("repeat_after_wake", True))
+            try:
+                row.event_generate("<Button-1>")
+                root.update()
+                saved = json.loads(K.CFG_PATH.read_text(encoding="utf-8"))
+                assert K.CFG.get("repeat_after_wake") is (not was), \
+                    K.CFG.get("repeat_after_wake")
+                assert saved.get("repeat_after_wake") is (not was), \
+                    saved.get("repeat_after_wake")
+                assert row.on is (not was), row.on
+            finally:
+                if bool(K.CFG.get("repeat_after_wake", True)) is not was:
+                    row.event_generate("<Button-1>")
+                    root.update()
+        step("the repeat switch is there, says its spacing and saves",
+             the_repeat_switch)
+
         def the_log_can_be_opened():
             """The link at the foot of the window - both ways it can go.
 

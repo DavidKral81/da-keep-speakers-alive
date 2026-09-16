@@ -605,8 +605,8 @@ def test_the_engine_loop_does_its_job():
         # divide perfectly and the loop still never owe a second pulse at all,
         # and every check that only reads the flag would pass.
         #
-        # The case is the one from 03.09.2026: the first pulse after a cold
-        # start was logged as a success and the speakers slept through it.
+        # The case it exists for: the first pulse after a cold start logged as
+        # a success, with the speakers sleeping through it.
 
         def pulses(reason=""):
             sent.append(reason)
@@ -637,8 +637,8 @@ def test_the_engine_loop_does_its_job():
         # Every one of them has to go out, and the log has to say what they
         # are: pulses a quarter of a minute apart otherwise read like a fault.
         #
-        # COUNTED, not assumed. 10.09.2026 is the reason there is a count at
-        # all: a wake-up pulse and one follow-up were both logged as successes
+        # COUNTED, not assumed. There is a count at all because a wake-up
+        # pulse and one follow-up were both logged as successes
         # and the speakers still slept through both, because sixteen seconds of
         # cover is not enough for an audio path that is still starting up. A
         # check that only asks "did a second one go?" passes just as happily
@@ -670,6 +670,51 @@ def test_the_engine_loop_does_its_job():
         check("then it goes back to the interval the user chose", sent == [],
               sent)
 
+        # Late is not asleep. A pause that has ended, the app switched back on
+        # or the interval shortened all leave the pulse long overdue with the
+        # machine running the whole time - nothing below the app restarted, so
+        # a minute of backing pulses there would have nothing to catch.
+        engine.woke_up = False
+        engine.follow_up = 0
+        engine.last_at = K.time.monotonic() - 2 * 3600    # two intervals late
+        sent.clear()
+        engine.stop.clear()
+        engine.run()
+        check("a pulse that is only late goes out", len(sent) == 1, sent)
+        check("but owes nothing behind it - the machine never slept",
+              engine.follow_up == 0, engine.follow_up)
+        # ... while a real sleep, told by the clock jump, still does. Both
+        # sides, or the check above would pass over a loop that never backs
+        # anything up again.
+        engine.woke_up = True
+        engine.follow_up = 0
+        sent.clear()
+        engine.stop.clear()
+        engine.run()
+        check("a pulse after a real sleep still owes the whole minute",
+              sent == [" (after a break)"]
+              and engine.follow_up == engine.FOLLOW_UPS,
+              (sent, engine.follow_up))
+        engine.follow_up = 0
+
+        # A pulse that THROWS must not take the minute down with it. send()
+        # re-reads the device list first, and straight after a wake-up is when
+        # that fails - while woke_up is already down, so no later turn is cold
+        # enough to owe the minute again.
+        def throws(reason=""):
+            raise RuntimeError("the device list is not back yet")
+
+        engine.send = throws
+        engine.woke_up = True
+        engine.follow_up = 0
+        engine.stop.clear()
+        engine.run()                    # trouble() catches it
+        check("a wake-up pulse that throws still leaves the minute owed",
+              engine.follow_up == engine.FOLLOW_UPS, engine.follow_up)
+        engine.send = pulses
+        engine.follow_up = 0
+        engine.error_items, engine.retries = [], 0
+
         # --- and the switch that turns the whole of it off -----------------
         K.CFG["repeat_after_wake"] = False
         engine.woke_up = False
@@ -688,6 +733,40 @@ def test_the_engine_loop_does_its_job():
         engine.stop.clear()
         engine.run()
         check("and no backing pulse follows", sent == [], sent)
+
+        # Switched off while pulses are still owed, what is owed runs out. The
+        # switch is read only where a debt is SET (follow_ups()), never where
+        # one is paid - so that "when is the next pulse" keeps one answer.
+        K.CFG["repeat_after_wake"] = True
+        engine.woke_up = False
+        engine.follow_up = 0
+        engine.last_at = 0.0
+        sent.clear()
+        engine.stop.clear()
+        engine.run()                                # cold: the minute is owed
+        K.CFG["repeat_after_wake"] = False
+        backing = 0
+        for _ in range(engine.FOLLOW_UPS + 3):
+            engine.last_at -= engine.FOLLOW_UP_S + 1
+            sent.clear()
+            engine.stop.clear()
+            engine.run()
+            if not sent:
+                break
+            backing += 1
+        check("switched off mid-way, the pulses already owed still go out",
+              backing == engine.FOLLOW_UPS, backing)
+
+        # And a cold pulse with the switch off does not wipe a debt that is
+        # still running: max() with what is owed, not a fresh count of nothing.
+        engine.follow_up = 2
+        engine.woke_up = True
+        sent.clear()
+        engine.stop.clear()
+        engine.run()
+        check("nor does a cold pulse with the switch off cancel what is owed",
+              engine.follow_up == 2, engine.follow_up)
+        engine.follow_up = 0
         K.CFG["repeat_after_wake"] = True
         engine.check_for_a_break = saved_check
 
@@ -1216,19 +1295,19 @@ def test_the_volume_correction():
               "1.0 % -> " in written and "%" in written.split("->")[1],
               written)
         # And how the device behaved while it went out. A pulse can be
-        # reported as sent and still not be heard - that is exactly what
-        # happened on 03.09.2026 - and these three numbers are the only trace
+        # reported as sent and still not be heard - that has happened - and
+        # these three numbers are the only trace
         # of the device itself that the log can hold. Summed over the three
         # stand-in devices: 3 x 0.02 s opening, 3 x 0.41 s writing.
         check("and how the device behaved while it did, not only what it was told",
               "[open 0.06 s, write 1.23 s, latency 0.110 s]" in written, written)
 
         # --- which endpoint the figure is read off -------------------------
-        # The failure this pairing exists for, seen live on 07.09.2026: the
-        # dock came back on a different USB port, so Windows renamed the output
-        # from "(4 - USB ...)" to "(USB ...)" and kept the old endpoint beside
-        # the new one for a while. Both reduce to one key, so the correction
-        # was dropped - and ten pulses went out at the bare setting, each
+        # The failure this pairing exists for: an audio device plugged back in
+        # on a different USB port, so Windows renamed the output from
+        # "(4 - USB ...)" to "(USB ...)" and kept the old endpoint beside the
+        # new one for a while. Both reduce to one key, so the correction was
+        # dropped - and pulse after pulse went out at the bare setting, each
         # logged as an ordinary success, while the speakers slept through them.
         twin_a = "Speakers (4 - USB Advanced Audio Device)"
         twin_b = "Speakers (USB Advanced Audio Device)"
@@ -1248,7 +1327,20 @@ def test_the_volume_correction():
         fallback = K.gain_for(twin_b, one_only)
         check("and the key still answers when the full name is not there",
               fallback == 0.03, fallback)
-        # ... but only while there is one figure to give. Two different ones
+        # ... but never for an endpoint that is there and would not say. Its
+        # twin of the same model may be turned right down, and borrowing that
+        # figure raises a pulse on a speaker at full volume until it is heard.
+        refused = {K._plain(twin_a): 0.03, K._plain(twin_b): None}
+        own = K.gain_for(twin_b, refused)
+        check("a device that would not say is not corrected by its twin",
+              own is None, own)
+        # Nor may the key answer for a renamed device while one of the
+        # endpoints under it would not say: that one may be the device itself.
+        renamed = K.gain_for(twin_c, refused)
+        check("nor is a renamed one, while an endpoint under its key is silent",
+              renamed is None, renamed)
+        # And with every endpoint under the key answering, only while there
+        # is one figure to give. Two different ones
         # under a single key cannot say which belongs to this device, and
         # correcting by the wrong one is the one thing this feature must never
         # do - a speaker at full volume raised by its twin's -30 dB is audible.
@@ -1257,9 +1349,9 @@ def test_the_volume_correction():
         clash = K.gain_for(twin_c, both)
         check("two different figures under one key give none at all",
               clash is None, clash)
-        # The silent half of the 07.09.2026 failure: the correction switching
-        # itself off left no trace anywhere. The only sign was a missing
-        # "-> 38.5 %" in a log line that otherwise read like a success.
+        # The silent half of that failure: the correction switching itself off
+        # left no trace anywhere. The only sign was the missing "-> ... %" in a
+        # log line that otherwise read like a success.
         said = K.LOG_PATH.read_text(encoding="utf-8")
         check("and it is said out loud instead of failing silently",
               "correction" in said and twin_c in said, said.strip() or "(empty)")
@@ -1279,18 +1371,32 @@ def test_the_volume_correction():
               K._plain(twin_c) not in K._collided_endpoints,
               sorted(K._collided_endpoints))
 
-        # The same thing through send(), which is where it actually mattered.
+        # The same thing through send(), which is where it actually mattered -
+        # and in the shape it really takes. targets() never picks two devices
+        # that share a key, so it is ONE speaker being pulsed while the other
+        # endpoint of its model hangs about beside it, turned down.
         K.targets = lambda devices=None: (
-            [{"name": name, "index": i, "samplerate": 48000, "channels": 2}
-             for i, name in enumerate((twin_a, twin_b))], [])
+            [{"name": twin_b, "index": 0, "samplerate": 48000,
+              "channels": 2}], [])
         K.endpoint_state = lambda: (set(), set(), dict(both))
-        engine.note_the_mute({K._key(twin_a)})
+        engine.note_the_mute({K._key(twin_b)})
         played.clear()
         engine.send(" (test)")
         peaks = dict(played)
-        check("two ports of one model each get their OWN correction",
-              abs(peaks[twin_a] - 0.01 / 0.03) < 1e-6
+        check("the speaker pulsed is corrected by its own endpoint, not its "
+              "twin's",
+              set(peaks) == {twin_b}
               and abs(peaks[twin_b] - 0.01 / 0.5) < 1e-6,
+              {n: round(p, 5) for n, p in peaks.items()})
+        # And when that very endpoint would not say, the pulse goes out as
+        # set - not raised by the twin's 0.03 to 33 times the setting.
+        K.endpoint_state = lambda: (set(), {K._key(twin_b)}, dict(refused))
+        engine.note_the_mute({K._key(twin_b)})
+        played.clear()
+        engine.send(" (test)")
+        peaks = dict(played)
+        check("and goes out exactly as set when its endpoint would not say",
+              set(peaks) == {twin_b} and abs(peaks[twin_b] - 0.01) < 1e-6,
               {n: round(p, 5) for n, p in peaks.items()})
         K.targets = three_devices
         K.endpoint_state = lambda: (set(), set(), dict(gains))
@@ -1485,6 +1591,21 @@ def test_texts():
     check("English needs no plural table",
           K.interval_label(60) == "1 minute", K.interval_label(60))
     check("English keeps the decimal point", K.number(0.4) == "0.4")
+
+    # The repeat switch names its spacing and its length. The spacing is
+    # filled in from the engine, so it has to come out of the text as the
+    # engine's number and not as a figure written into it by hand...
+    spacing = K.Engine.FOLLOW_UP_S
+    for language in ("cs", "en"):
+        texts.set_language(language)
+        label = K.tx("sw_wake_repeat", s=spacing)
+        check(f"the repeat switch gives the engine's spacing ({language})",
+              f" {spacing} " in label and "{" not in label, label)
+    # ... while "a minute" is written in words in both languages, so the
+    # constants have to keep adding up to one.
+    cover = K.Engine.FOLLOW_UP_S * K.Engine.FOLLOW_UPS
+    check("and the pulses it promises cover the minute its text says",
+          cover == 60, cover)
     texts.set_language(K.CFG.get("language", "cs"))
 
 
@@ -1557,11 +1678,12 @@ def test_one_endpoint_that_will_not_answer():
         # again left it green. It is made where it can be made to fail, in the
         # twins below, where the names are stood in for and do differ.
         walked_keys = {K._key(name) for name in walked}
+        read = {K._key(n) for n, g in gains.items() if g is not None}
         check("every readable endpoint came back with an attenuation",
-              {K._key(name) for name in gains} == walked_keys - unsure,
+              read == walked_keys - unsure,
               f"gains={sorted(gains)} walked={sorted(walked_keys)}")
         check("including the ones that are not muted",
-              bool({K._key(n) for n in gains} - everything)
+              bool(read - everything)
               or not (walked_keys - everything),
               f"gains={sorted(gains)} muted={sorted(everything)}")
 
@@ -1590,9 +1712,15 @@ def test_one_endpoint_that_will_not_answer():
         # An unknown attenuation must stay unknown. A stand-in figure here
         # would be indistinguishable from a real reading of full volume, and
         # the correction would then "put back" something nobody measured.
-        check("and it is left OUT of the attenuations rather than guessed",
-              not (unsure_after & {K._key(n) for n in gains_after}),
-              f"unsure={sorted(unsure_after)} gains={sorted(gains_after)}")
+        check("and its attenuation is not guessed",
+              not (unsure_after & {K._key(n) for n, g in gains_after.items()
+                                   if g is not None}),
+              f"unsure={sorted(unsure_after)} gains={gains_after}")
+        # Held as "would not say" rather than left out. Left out, gain_for()
+        # falls back to the key and borrows the reading of a twin of the same
+        # model - see the twins in test_the_volume_correction.
+        check("but held as 'would not say', not left out",
+              list(gains_after.values()).count(None) == 1, gains_after)
 
         # The counter-case: without a name there is no way to say which device
         # the trouble belongs to, so the whole reading has to admit it failed.

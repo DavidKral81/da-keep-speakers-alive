@@ -103,12 +103,12 @@ CS = {
                           "reproduktory přesto usnou, zkrať ho.",
     "lbl_interval": "Interval",
     "sw_wake_repeat": "Po probuzení počítače opakovat impulz první minutu "
-                      "každých 15 sekund",
+                      "každých {s} sekund",
     "sw_wake_repeat_desc": "Když se počítač probudí ze spánku, zvuková cesta "
                            "se teprve rozjíždí a první impulz se může ztratit, "
                            "i když ho aplikace zapíše jako odeslaný. "
-                           "Opakování ho podchytí. Totéž platí po připojení "
-                           "reproduktoru.",
+                           "Opakování ho podchytí. Totéž platí po spuštění "
+                           "aplikace a po připojení reproduktoru.",
     "opt_seconds": "{s} sekund",
     "opt_minute": "{m} minuta",
     "opt_minutes": "{m} minuty",
@@ -318,13 +318,14 @@ EN = {
                           "silence. The interval has to be shorter than that "
                           "— if they still fall asleep, shorten it.",
     "lbl_interval": "Interval",
-    "sw_wake_repeat": "After the computer wakes up, repeat the pulse every 15 "
+    "sw_wake_repeat": "After the computer wakes up, repeat the pulse every {s} "
                       "seconds for a minute",
     "sw_wake_repeat_desc": "When the computer wakes from sleep the audio path "
                            "is still starting up, and the first pulse can be "
                            "lost even though the app records it as sent. "
-                           "Repeating it catches that. The same goes for a "
-                           "speaker that has just been plugged in.",
+                           "Repeating it catches that. The same goes for the "
+                           "app starting and for a speaker that has just been "
+                           "plugged in.",
     "opt_seconds": "{s} seconds",
     "opt_minute": "{m} minute",
     "opt_minutes": "{m} minutes",

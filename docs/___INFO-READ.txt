@@ -173,9 +173,10 @@ HOW OFTEN TO SEND A PULSE
 
     You can switch it off with the "After the computer wakes up,
     repeat the pulse every 15 seconds for a minute" tick box in
-    this very section. It is on by default. With it off, a
-    wake-up gets the one pulse that goes out straight away and
-    nothing behind it.
+    this very section. It is on by default. The tick box covers
+    all three cases, not only the wake-up: with it off, a start,
+    a wake-up and a speaker being plugged in each get the one
+    pulse that goes out straight away and nothing behind it.
 
     An un-mute gets no repeat - the device was there all along
     and Windows was only refusing to let the sound out, so there

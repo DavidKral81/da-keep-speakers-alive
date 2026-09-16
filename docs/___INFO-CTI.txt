@@ -164,8 +164,10 @@ JAK ČASTO POSÍLAT IMPULZ
 
     Vypnout to jde zaškrtávátkem "Po probuzení počítače opakovat
     impulz první minutu každých 15 sekund" přímo v téhle sekci.
-    Výchozí stav je zapnuto. Po vypnutí zůstane po probuzení
-    jediný impulz — ten, co jde hned.
+    Výchozí stav je zapnuto. Zaškrtávátko platí pro všechny tři
+    případy, nejen pro probuzení: po vypnutí zůstane po spuštění,
+    po probuzení i po připojení reproduktoru jediný impulz — ten,
+    co jde hned.
 
     Zrušené ztlumení opakování nedostává — zařízení tam bylo
     celou dobu, jen z něj Windows nepouštěla zvuk, takže není

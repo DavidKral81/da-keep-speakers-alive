@@ -75,7 +75,7 @@ class LanguageFlags(tk.Frame):
             canvas.pack(side="left", padx=(self.GAP, 0))
             # the loop variable has to be captured, or every flag would
             # switch to the language of the last one built
-            canvas.bind("<Button-1>", (lambda c: lambda e: action(c))(code))
+            canvas.bind("<Button-1>", (lambda c: lambda e=None: action(c))(code))
             self._draw(canvas, code, code == texts.language(), accent)
 
     def _draw(self, canvas, code, active, accent):

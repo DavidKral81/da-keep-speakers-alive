@@ -111,8 +111,8 @@ DEFAULTS = {
     "use_default_device": True,   # follow whatever Windows plays through
     "devices": [],                # extra outputs, remembered by NAME
     "interval_s": 180,
-    # Keep pulsing for a minute after the machine wakes up, or after a speaker
-    # is plugged in - see Engine.FOLLOW_UPS for what that is for. ON by
+    # Keep pulsing for a minute after the app starts, the machine wakes up or a
+    # speaker is plugged in - see Engine.FOLLOW_UPS for what that is for. ON by
     # default, unlike amp_correction: this one does not change what leaves the
     # machine, only how often an inaudible pulse is repeated in the one moment
     # it is known to go missing.
@@ -1024,6 +1024,10 @@ class Engine(threading.Thread):
         # follow this without a second clock to disagree with. Zero means
         # nothing is owed, which is also why a plain `if` still reads right.
         self.follow_up = 0
+        # Whether the app has been switched off or paused since it started. A
+        # first pulse right after the start is cold - the machine may have just
+        # booted - but one after switching on later is not: the machine ran.
+        self.was_off = False
         # The wall clock and the monotonic clock drifting apart is what gives
         # a sleep away - see check_for_a_break().
         self.clock_gap = time.time() - time.monotonic()
@@ -1471,6 +1475,7 @@ class Engine(threading.Thread):
                     # gone out; firing them whenever the app comes back would
                     # make them pulses of their own, out of any context.
                     self.follow_up = 0
+                    self.was_off = True
                 elif self.woke_up or due <= 0:
                     # Being very late means the process was frozen - the
                     # machine was asleep. The speakers slept through it too,
@@ -1481,10 +1486,10 @@ class Engine(threading.Thread):
                     after_a_break = self.woke_up or late > 60
                     # Is this pulse the first one on an audio path that has
                     # only just come up? Either nothing has been sent at all
-                    # yet - the app has just started, and on a machine that has
-                    # just booted the sound device came up seconds ago - or the
-                    # machine has been asleep and everything below it had to
-                    # start again. Worked out BEFORE send(), which is what
+                    # since the app started switched on - and on a machine that
+                    # has just booted the sound device came up seconds ago - or
+                    # the machine has been asleep and everything below it had
+                    # to start again. Worked out BEFORE send(), which is what
                     # sets last_at.
                     #
                     # The sleep is told by woke_up, the clock jump, and NOT by
@@ -1492,8 +1497,10 @@ class Engine(threading.Thread):
                     # the whole time - a pause that has ended, the app switched
                     # back on, the interval shortened - and there nothing below
                     # the app has restarted, so a minute of backing pulses
-                    # would have nothing to catch.
-                    cold = self.woke_up or not self.last_at
+                    # would have nothing to catch. That includes an app that
+                    # started switched off and was switched on later, which is
+                    # why the first pulse alone is not enough (was_off).
+                    cold = self.woke_up or not (self.last_at or self.was_off)
                     self.woke_up = False
                     owed = self.follow_up
                     # A cold pulse starts the whole minute over; any other one

@@ -558,7 +558,7 @@ def test_the_engine_loop_does_its_job():
     saved = (engine.woke_up, engine.last_at, engine.retries,
              list(engine.error_items), engine.paused_until, engine.pulse_now)
     saved_watch = (engine.follow_up, engine.seen, engine.muted,
-                   engine.scanned_at)
+                   engine.scanned_at, engine.was_off)
     saved_send, saved_check, saved_log = (engine.send, engine.check_for_a_break,
                                           K.log)
     saved_cfg = dict(K.CFG)
@@ -697,6 +697,23 @@ def test_the_engine_loop_does_its_job():
               (sent, engine.follow_up))
         engine.follow_up = 0
 
+        # Started with the app switched off and switched on later: nothing has
+        # been sent yet, like a fresh start - but the machine ran all along, so
+        # there is no audio path coming up for a minute of pulses to catch.
+        engine.woke_up = False
+        engine.last_at = 0.0
+        K.CFG["active"] = False
+        sent.clear()
+        engine.stop.clear()
+        engine.run()                    # one turn while switched off
+        K.CFG["active"] = True
+        engine.stop.clear()
+        engine.run()
+        check("switched on long after the start, the first pulse owes nothing",
+              sent == [""] and engine.follow_up == 0, (sent, engine.follow_up))
+        engine.follow_up = 0
+        engine.was_off = False          # the cases below are fresh starts
+
         # A pulse that THROWS must not take the minute down with it. send()
         # re-reads the device list first, and straight after a wake-up is when
         # that fails - while woke_up is already down, so no later turn is cold
@@ -802,7 +819,7 @@ def test_the_engine_loop_does_its_job():
         (engine.woke_up, engine.last_at, engine.retries, engine.error_items,
          engine.paused_until, engine.pulse_now) = saved
         (engine.follow_up, engine.seen, engine.muted,
-         engine.scanned_at) = saved_watch
+         engine.scanned_at, engine.was_off) = saved_watch
         engine.stop.clear()
         engine.wake.clear()
         K.CFG.clear()
@@ -1672,7 +1689,7 @@ def test_one_endpoint_that_will_not_answer():
         # such and only reduced to keys where the two have to line up.
         # No check here that the attenuations are held under the FULL name:
         # on a machine whose outputs happen to carry no port number in their
-        # names - which is this one whenever the dock is unplugged - _key() and
+        # names - an ordinary state for many machines - _key() and
         # _plain() return the same string, and such a check passes over keyed
         # readings just as happily. Proved by sabotage: keying them by _key()
         # again left it green. It is made where it can be made to fail, in the

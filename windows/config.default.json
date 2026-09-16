@@ -15,8 +15,8 @@
   "_interval_s": "Seconds between pulses. Shorter than the speaker's standby.",
   "interval_s": 180,
 
-  "_repeat_after_wake": "Keep pulsing for a minute, one every 15 s, after the",
-  "__repeat_after_wake": "machine wakes up or a speaker is plugged in.",
+  "_repeat_after_wake": "Keep repeating the pulse for a minute after the app",
+  "__repeat_after_wake": "starts, the machine wakes up or a speaker is plugged in.",
   "repeat_after_wake": true,
 
   "_freq_hz": "Pulse frequency. 20 Hz is below what a person hears as a tone.",

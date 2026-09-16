@@ -1450,6 +1450,7 @@ class Engine(threading.Thread):
 
     def run(self):
         while not self.stop.is_set():
+            attempted = False       # did this turn try a scheduled pulse?
             try:
                 self.check_for_a_break()
                 due = self.due_in()
@@ -1529,6 +1530,7 @@ class Engine(threading.Thread):
                         reason = " (again, the first one may not have been heard)"
                     else:
                         reason = ""
+                    attempted = True
                     self.send(reason)
                 elif (news := self.a_device_needs_a_pulse()):
                     reason, cold = news
@@ -1544,6 +1546,15 @@ class Engine(threading.Thread):
             except Exception as error:
                 # Deliberately everything: this is the last line before the
                 # thread dies, and a dead engine is invisible to the user.
+                if attempted:
+                    # A scheduled pulse that threw is a failed pulse like any
+                    # other, so it is timed like one. Left untimed, a pulse
+                    # overdue after a sleep stayed overdue: it was tried again
+                    # every second, bypassing the retry steps, and each try
+                    # paid one backing pulse off - the minute was burnt in
+                    # seconds. Only here, not for every error: a device scan
+                    # that keeps throwing must not push the pulse away for ever.
+                    self.last_at = time.monotonic()
                 self.trouble(error)
             # Waking up at least once a second keeps the countdown in the
             # window honest and picks up a changed interval straight away.

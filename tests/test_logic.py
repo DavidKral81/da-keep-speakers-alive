@@ -728,6 +728,30 @@ def test_the_engine_loop_does_its_job():
         engine.run()                    # trouble() catches it
         check("a wake-up pulse that throws still leaves the minute owed",
               engine.follow_up == engine.FOLLOW_UPS, engine.follow_up)
+
+        # And when it KEEPS throwing, the minute is not burnt in seconds. After
+        # a sleep the last pulse is long in the past; a throw that left that
+        # time standing made every following second overdue again, and each of
+        # those tries paid one backing pulse off - four failures and the minute
+        # was gone before the speakers could have been reached.
+        attempts = []
+
+        def keeps_throwing(reason=""):
+            attempts.append(reason)
+            raise RuntimeError("the device list is not back yet")
+
+        engine.send = keeps_throwing
+        engine.woke_up = True
+        engine.follow_up = 0
+        engine.error_items, engine.retries = [], 0
+        engine.last_at = K.time.monotonic() - 2 * 3600     # asleep for hours
+        for _ in range(engine.FOLLOW_UPS + 2):             # seconds, not minutes
+            engine.stop.clear()
+            engine.run()
+        check("a pulse that keeps throwing is not retried every second",
+              len(attempts) == 1, attempts)
+        check("so the minute of backing pulses is still owed",
+              engine.follow_up == engine.FOLLOW_UPS, engine.follow_up)
         engine.send = pulses
         engine.follow_up = 0
         engine.error_items, engine.retries = [], 0
@@ -796,8 +820,14 @@ def test_the_engine_loop_does_its_job():
 
         engine.check_for_a_break = explode
         engine.error_items = []
+        before = engine.last_at
         engine.stop.clear()
         engine.run()                    # must RETURN, not raise
+        # Only a pulse that threw is timed as a failed pulse. An error anywhere
+        # else - a device scan that keeps failing every ten seconds - would
+        # otherwise keep pushing the real pulse away for as long as it lasts.
+        check("an error outside a pulse does not move the pulse's time",
+              engine.last_at == before, (before, engine.last_at))
         check("an unexpected error does not end the engine in silence",
               engine.state() == "error", engine.state())
         check("and it says what actually happened",
@@ -1612,12 +1642,15 @@ def test_texts():
     # The repeat switch names its spacing and its length. The spacing is
     # filled in from the engine, so it has to come out of the text as the
     # engine's number and not as a figure written into it by hand...
-    spacing = K.Engine.FOLLOW_UP_S
+    # Filled in with a number the engine does NOT use: asked with its real
+    # value, a text with that same figure typed into it passed just as well.
+    probe = K.Engine.FOLLOW_UP_S + 2
     for language in ("cs", "en"):
         texts.set_language(language)
-        label = K.tx("sw_wake_repeat", s=spacing)
+        label = K.tx("sw_wake_repeat", s=probe)
         check(f"the repeat switch gives the engine's spacing ({language})",
-              f" {spacing} " in label and "{" not in label, label)
+              f" {probe} " in label and "{" not in label
+              and f" {K.Engine.FOLLOW_UP_S} " not in label, label)
     # ... while "a minute" is written in words in both languages, so the
     # constants have to keep adding up to one.
     cover = K.Engine.FOLLOW_UP_S * K.Engine.FOLLOW_UPS

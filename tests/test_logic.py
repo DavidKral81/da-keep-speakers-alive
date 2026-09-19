@@ -449,22 +449,35 @@ def test_retry_after_a_failed_pulse():
 def test_a_sleep_is_noticed():
     """After the machine wakes up the pulse has to go out at once.
 
-    time.monotonic() runs on QueryPerformanceCounter here and stands still
-    while the machine sleeps, so the countdown alone never notices: twelve
-    hours of standby in the real log went by as "a couple of minutes" and the
-    app sat out the rest of the interval with the speakers already asleep.
-    Only the wall clock keeps running, so the two drifting apart is the test.
+    Two independent signs of a break are checked here, because neither one on
+    its own holds on every machine - and a machine that shows neither would
+    leave the speakers asleep until the interval ran out:
 
-    The counter-case is the one that makes this worth anything: an ordinary
-    second must NOT be mistaken for a sleep, or the app would pulse every
-    second for ever.
+    - the wall clock running on while time.monotonic() does not. That is what
+      happens where monotonic stands still through a sleep: twelve hours of
+      standby in the real log went by as "a couple of minutes".
+    - the time Windows says the machine has spent asleep going up. That is the
+      only sign left where monotonic counts the sleep IN, which is what the
+      machine in CLAUDE.md did on 19.09.2026: monotonic, perf_counter, QPC and
+      GetTickCount64 all agreed, 31 703 s of standby included, so the drift
+      above was zero and three wake-ups in a row went unnoticed.
+
+    The counter-cases are what make these worth anything: an ordinary second
+    must NOT be mistaken for a sleep, or the app would pulse every second for
+    ever.
     """
     print("noticing that the machine was asleep")
     engine = K.ENGINE
     saved = (engine.woke_up, engine.clock_gap, engine.last_at,
-             engine.paused_until)
+             engine.paused_until, engine.slept)
+    saved_slept = K.slept_since_boot
     try:
         engine.last_at = K.time.monotonic()
+
+        # --- the wall clock drifting away from a monotonic clock that stopped
+        # Held still, so that this half is decided by the drift alone.
+        K.slept_since_boot = lambda: 1000.0
+        engine.slept = 1000.0
 
         engine.woke_up = False
         engine.clock_gap = K.time.time() - K.time.monotonic()
@@ -501,19 +514,68 @@ def test_a_sleep_is_noticed():
         age = K.time.monotonic() - engine.last_at
         check("and the last pulse is then as old as it really is",
               3590 < age < 3610, age)
+
+        # --- the sleep Windows counted, on a machine where monotonic did too
+        # No drift at all from here on, so every check below is decided by the
+        # figure Windows hands out and by nothing else.
+        engine.last_at = K.time.monotonic()
+        engine.clock_gap = K.time.time() - K.time.monotonic()
+        engine.woke_up = False
+        engine.slept = 1000.0
+
+        K.slept_since_boot = lambda: 1000.0
+        engine.check_for_a_break()
+        check("a second with no sleep in it is not a wake-up either",
+              engine.woke_up is False, engine.woke_up)
+
+        K.slept_since_boot = lambda: 1000.0 + 3600
+        engine.check_for_a_break()
+        check("an hour of sleep the monotonic clock counted in is noticed",
+              engine.woke_up is True, engine.woke_up)
+
+        # Nothing to put right here: the monotonic clock ran through the sleep,
+        # so the last pulse already reads as old as it really is. Moving it
+        # back the way the drift branch does would age it twice.
+        age = K.time.monotonic() - engine.last_at
+        check("and the age of the last pulse is left alone", age < 60, age)
+
+        engine.woke_up = False
+        engine.check_for_a_break()
+        check("and that sleep is not reported a second time",
+              engine.woke_up is False, engine.woke_up)
+
+        # Windows not answering must not stop the drift above from working,
+        # and must not invent a wake-up of its own.
+        K.slept_since_boot = lambda: None
+        engine.check_for_a_break()
+        check("a machine that will not say how long it slept is no wake-up",
+              engine.woke_up is False, engine.woke_up)
+        engine.clock_gap = K.time.time() - K.time.monotonic() - 3600
+        engine.check_for_a_break()
+        check("and the drift is still noticed while it stays quiet",
+              engine.woke_up is True, engine.woke_up)
+
+        # The real thing, unmocked: a figure in seconds that cannot be
+        # negative and cannot be longer than the machine has been up.
+        K.slept_since_boot = saved_slept
+        live = K.slept_since_boot()
+        check("the real sleep counter is a sane number of seconds",
+              live is None or 0 <= live <= K.time.monotonic() + 86400, live)
     finally:
         (engine.woke_up, engine.clock_gap, engine.last_at,
-         engine.paused_until) = saved
+         engine.paused_until, engine.slept) = saved
+        K.slept_since_boot = saved_slept
 
 
 def test_a_pause_runs_in_real_time():
     """"Pause for 15 minutes" has to mean fifteen minutes of REAL time.
 
-    The deadline used to be kept on the monotonic clock, which stands still
-    while the machine sleeps - so a pause set in the evening came back from
-    an overnight standby with its full fifteen minutes still to run. It is on
-    the wall clock now, which needs no correcting afterwards and cannot be
-    overwritten by the engine thread and the window thread in turn.
+    The deadline used to be kept on the monotonic clock, which on some
+    machines stands still while they sleep - so a pause set in the evening
+    came back from an overnight standby with its full fifteen minutes still to
+    run. It is on the wall clock now, which runs through a sleep whatever the
+    machine does, needs no correcting afterwards and cannot be overwritten by
+    the engine thread and the window thread in turn.
 
     Reading the deadline back against the wall clock is what proves which
     clock it is on: the two are billions of seconds apart, so a mismatch

@@ -914,6 +914,53 @@ def play(device, wave):
             return opened - started, written - opened, stream.latency
 
 
+# ------------------------------------------------- how long the machine slept
+
+_kernel32 = ctypes.windll.kernel32
+_kernel32.GetTickCount64.restype = ctypes.c_ulonglong
+_kernel32.GetTickCount64.argtypes = ()
+_kernel32.QueryUnbiasedInterruptTime.restype = wintypes.BOOL
+_kernel32.QueryUnbiasedInterruptTime.argtypes = (
+    ctypes.POINTER(ctypes.c_ulonglong),)
+
+# Said once, not every second: this runs on every turn of the engine loop.
+_no_sleep_counter = False
+
+
+def slept_since_boot():
+    """Seconds the machine has spent asleep since it booted, or None.
+
+    Windows keeps two counters since boot. GetTickCount64() is "biased" - it
+    counts sleep and hibernation in - while QueryUnbiasedInterruptTime() does
+    not, so what separates them IS the time spent asleep. Neither depends on
+    which clock Python's time.monotonic() happens to sit on, which is the
+    whole point: see check_for_a_break() for what went wrong without it.
+
+    None when Windows will not say, which is not fatal - the caller has a
+    second sign of a break and falls back on it.
+    """
+    global _no_sleep_counter
+    unbiased = ctypes.c_ulonglong()
+    try:
+        answered = _kernel32.QueryUnbiasedInterruptTime(ctypes.byref(unbiased))
+        biased_ms = _kernel32.GetTickCount64()
+    except OSError as error:
+        # Not swallowed: a wake-up noticed a whole interval late is exactly
+        # the fault this function exists to prevent, so it is worth a line.
+        if not _no_sleep_counter:
+            log(f"Windows will not say how long the machine has slept: {error}")
+            _no_sleep_counter = True
+        return None
+    if not answered:
+        if not _no_sleep_counter:
+            log("Windows will not say how long the machine has slept.")
+            _no_sleep_counter = True
+        return None
+    _no_sleep_counter = False
+    # ms and 100 ns units respectively, both counted from the same boot
+    return biased_ms / 1000.0 - unbiased.value / 1e7
+
+
 # ---------------------------------------------------------------- engine
 
 class Engine(threading.Thread):
@@ -1005,12 +1052,13 @@ class Engine(threading.Thread):
         # that case, and the user has no way to tell it from a total failure.
         self.partly = False
         # Wall clock, NOT monotonic: "pause for 15 minutes" means fifteen
-        # minutes of real time. The monotonic clock stands still while the
-        # machine sleeps, so a pause set on it came back from an overnight
-        # sleep with its full length still to run. Deriving it from the clock
-        # that keeps running needs no correction afterwards - and nothing that
-        # the engine thread and the window thread could overwrite for each
-        # other.
+        # minutes of real time. Whether the monotonic clock stands still
+        # through a sleep is not something to rely on either way - it does on
+        # some machines and not on others, see check_for_a_break() - and where
+        # it does, a pause set on it came back from an overnight sleep with
+        # its full length still to run. The clock that keeps running in every
+        # case needs no correction afterwards - and nothing that the engine
+        # thread and the window thread could overwrite for each other.
         self.paused_until = 0.0         # wall clock (time.time)
         self.pulse_now = False
         # How many pulses in a row went wrong. Drives the short retry below -
@@ -1031,6 +1079,10 @@ class Engine(threading.Thread):
         # The wall clock and the monotonic clock drifting apart is what gives
         # a sleep away - see check_for_a_break().
         self.clock_gap = time.time() - time.monotonic()
+        # How much sleep Windows had counted last time it was asked; the other
+        # sign of a break, and the only one on a machine whose monotonic clock
+        # counts sleep in. None until it answers - see slept_since_boot().
+        self.slept = slept_since_boot()
         self.playing_from = 0.0         # monotonic, 0 = nothing is playing now
         self.playing_span = 0.0         # how long the burst being played takes
         # Which target devices were present the last time the list was read,
@@ -1281,32 +1333,55 @@ class Engine(threading.Thread):
     def check_for_a_break(self):
         """Notice that the machine was asleep, and ask for a pulse at once.
 
-        time.monotonic() runs on QueryPerformanceCounter on this platform,
-        and that stands still while the machine sleeps. Waiting for the
-        countdown to run out therefore does NOT work: after twelve hours of
-        standby the engine believed a couple of minutes had passed and sat
-        out the rest of the interval - with the speakers, which had slept
-        through it too, silent all the while.
+        Waiting for the countdown to run out does not work, and a pulse that
+        goes out late is only half the damage: the minute of backing pulses in
+        run() hangs off the wake-up being recognised AS one, so a break that
+        goes unnoticed costs the speakers the very pulses meant to catch the
+        audio path coming back up.
 
-        The wall clock does not stand still, so the two drifting apart is the
-        one sign of a break that holds whatever the machine did - sleep,
-        hibernation, or the process being frozen. A clock put back by hand
-        (drift the other way) is ignored; a pulse too many would be harmless
-        anyway, a missing one is the whole problem.
+        Two signs are watched, because which of them shows up depends on the
+        machine, and each is blind exactly where the other is not:
 
-        It cannot tell a sleep from the clock being put FORWARD by more than
-        a minute (a time server correcting a badly wrong clock, someone
-        setting it by hand). The result is one pulse that was not due - which
-        is harmless, and the price of catching every real sleep. Nothing else
-        is decided here: the pause runs on the wall clock and needs no
-        correcting.
+        - the wall clock drifting ahead of time.monotonic(). That is the sign
+          where monotonic stands still through the sleep, which is what the
+          machine this was first written on did: after twelve hours of standby
+          the engine believed a couple of minutes had passed.
+        - Windows' own count of time spent asleep going up (slept_since_boot).
+          That is all that is left where monotonic counts the sleep IN, and it
+          does: on 19.09.2026, monotonic, perf_counter, QPC and GetTickCount64
+          all read the same on that same machine, 31 703 s of standby
+          included. The drift was zero, three wake-ups in a row went
+          unnoticed, and the speakers stayed asleep with nothing in the log to
+          show for it - the pulse still went out on the interval, so the log
+          said "(after a break)" as usual.
+
+        A clock put back by hand (drift the other way) is ignored; a pulse too
+        many would be harmless anyway, a missing one is the whole problem. The
+        drift cannot tell a sleep from the clock being put FORWARD by more than
+        a minute (a time server correcting a badly wrong clock) - one pulse
+        that was not due, which is the price of catching every real sleep.
+        Nothing else is decided here: the pause runs on the wall clock and
+        needs no correcting.
 
         Runs in the engine thread, and touches only what that thread owns.
         """
         gap = time.time() - time.monotonic()
         drift = gap - self.clock_gap
         self.clock_gap = gap
-        if drift > self.BREAK_S and self.last_at:
+
+        slept = slept_since_boot()
+        # None on either side means there is nothing to compare yet - Windows
+        # has not answered, this time or at all - and NOT that no sleep
+        # happened. The reading is kept whenever it comes, so time asleep
+        # while it was quiet is counted in at the next answer rather than lost.
+        dozed = (slept - self.slept
+                 if slept is not None and self.slept is not None else 0.0)
+        if slept is not None:
+            self.slept = slept
+
+        if not self.last_at:
+            return
+        if drift > self.BREAK_S:
             self.woke_up = True
             # last_at is on the same standing-still clock, so after the sleep
             # it looks far more recent than it is: the window would say "last
@@ -1315,6 +1390,12 @@ class Engine(threading.Thread):
             # wall clock. Moving it back by the drift makes the age real
             # again - and the countdown along with it.
             self.last_at -= drift
+        elif dozed > self.BREAK_S:
+            # Nothing to put right in this branch, and that is the difference
+            # between the two: a monotonic clock that counted the sleep in has
+            # already aged last_at by every second of it. Moving it back here
+            # as well would age the last pulse twice over.
+            self.woke_up = True
 
     def a_device_needs_a_pulse(self):
         """(why a chosen speaker should be pulsed right now, is it cold), or

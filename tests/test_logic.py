@@ -556,11 +556,14 @@ def test_a_sleep_is_noticed():
               engine.woke_up is True, engine.woke_up)
 
         # The real thing, unmocked: a figure in seconds that cannot be
-        # negative and cannot be longer than the machine has been up.
+        # longer than the machine has been up, nor negative - except by one
+        # tick: GetTickCount64() moves in steps of ~16 ms, so on a machine
+        # that has not slept since boot it reads up to 16 ms below zero.
         K.slept_since_boot = saved_slept
         live = K.slept_since_boot()
         check("the real sleep counter is a sane number of seconds",
-              live is None or 0 <= live <= K.time.monotonic() + 86400, live)
+              live is None or -0.05 <= live <= K.time.monotonic() + 86400,
+              live)
     finally:
         (engine.woke_up, engine.clock_gap, engine.last_at,
          engine.paused_until, engine.slept) = saved

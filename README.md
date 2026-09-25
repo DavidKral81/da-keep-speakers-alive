@@ -120,9 +120,11 @@ speaker being plugged in — one pulse is not the end of it: it repeats for the
 first minute, every fifteen seconds. A pulse can land while the device is
 still starting, where it plays into nothing and is reported as sent all the
 same, and a path that is still waking up can swallow more than one of them.
-None of them is audible, it can be switched off, and every pulse in the log
-carries how long the device took to open and to write — because a pulse
-recorded as sent is not proof that anything was heard.
+After a start, that holds only when the app is on from the start: switched on
+later, its first pulse goes out without the repeats. None of them is audible,
+it can be switched off, and every pulse in the log carries how long the device
+took to open and to write — because a pulse recorded as sent is not proof that
+anything was heard.
 
 ---
 

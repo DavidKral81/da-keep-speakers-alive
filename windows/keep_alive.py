@@ -1363,7 +1363,8 @@ class Engine(threading.Thread):
         drift cannot tell a sleep from the clock being put FORWARD by more than
         a minute (a time server correcting a badly wrong clock) - a pulse that
         was not due, and as it counts as a wake-up, the minute of repeats after
-        it: five in all while the repeats are on. That is the price of catching every real sleep.
+        it: five in all while the repeats are on. That is the price of
+        catching every real sleep.
         Nothing else is decided here: the pause runs on the wall clock and
         needs no correcting.
 
@@ -1377,7 +1378,8 @@ class Engine(threading.Thread):
         # None on either side means there is nothing to compare yet - Windows
         # has not answered, this time or at all - and NOT that no sleep
         # happened. The reading is kept whenever it comes, so time asleep
-        # while it was quiet is counted in at the next answer rather than lost.
+        # while it was quiet is counted in at the next answer rather than lost
+        # - unless the drift has caught that sleep already, see below.
         dozed = (slept - self.slept
                  if slept is not None and self.slept is not None else 0.0)
         if slept is not None:

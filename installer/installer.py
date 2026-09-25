@@ -94,9 +94,9 @@ DATA = Path(_appdata) / APP_NAME if _appdata else None
 
 # Note: there is no Startup-folder shortcut to clean up here. This app
 # deliberately never creates one - the scheduled task is the only autostart
-# mechanism, so
-# the uninstaller has nothing else to look for. Deleting a shortcut we never
-# created would mean touching a file that belongs to someone else.
+# mechanism, so the uninstaller has nothing else to look for. Deleting a
+# shortcut we never created would mean touching a file that belongs to
+# someone else.
 
 
 # ---------------------------------------------------------------- language

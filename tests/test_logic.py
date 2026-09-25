@@ -651,10 +651,12 @@ def test_windows_will_not_say_how_long_it_slept():
             return 5000                         # ms
 
     saved = (K._kernel32, K._no_sleep_counter, K.slept_since_boot)
+    saved_log = K.CFG.get("log", True)
     kernel = Kernel()
     try:
         K._kernel32 = kernel
         K._no_sleep_counter = False
+        K.CFG["log"] = True             # goes to the redirected file, not the app's
         K.LOG_PATH.write_text("", encoding="utf-8")
 
         first = K.slept_since_boot()
@@ -678,6 +680,7 @@ def test_windows_will_not_say_how_long_it_slept():
               not asked, len(asked))
     finally:
         K._kernel32, K._no_sleep_counter, K.slept_since_boot = saved
+        K.CFG["log"] = saved_log
 
 
 def test_a_pause_runs_in_real_time():

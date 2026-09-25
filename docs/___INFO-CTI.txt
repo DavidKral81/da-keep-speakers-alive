@@ -161,6 +161,9 @@ JAK ČASTO POSÍLAT IMPULZ
     úspěšný a reproduktory přesto spí dál. Opakování je pojistka
     přesně na tenhle případ; v logu jsou ty impulzy označené
     jako "again". Slyšet není ani jeden.
+    Po spuštění to platí jen tehdy, když je aplikace zapnutá
+    hned od startu; zapneš-li ji až později, impulz odejde
+    hned, ale bez opakování.
 
     Vypnout to jde zaškrtávátkem "Po probuzení počítače opakovat
     impulz první minutu každých 15 sekund" přímo v téhle sekci.

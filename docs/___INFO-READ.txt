@@ -170,6 +170,9 @@ HOW OFTEN TO SEND A PULSE
     success, and the speakers sleep on regardless. Repeating it
     is the safety net for exactly that; the log marks those
     pulses "again". None of them is audible.
+    After a start that holds only when the app is switched on
+    from the start; switched on later, it sends its pulse right
+    away, but without the repeats.
 
     You can switch it off with the "After the computer wakes up,
     repeat the pulse every 15 seconds for a minute" tick box in

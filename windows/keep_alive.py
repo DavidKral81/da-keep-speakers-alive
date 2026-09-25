@@ -52,7 +52,7 @@ from version import VERSION, PROJECT_URL
 
 APP_NAME = "Da Keep Speakers Alive"
 
-# A console on a Czech Windows is cp1250, and "Sluchátka (RØDE NT-USB+)" does
+# A console on a Czech Windows is cp1250, and "Sluchátka (ØMNI USB+)" does
 # not fit in it: print() then raises UnicodeEncodeError instead of printing.
 # That takes down whatever was running - and it does it on the path that
 # matters most, because a device name reaches the output mostly when something
@@ -103,7 +103,7 @@ user32 = ctypes.windll.user32
 # config.default.json is only a commented copy of these values - test_logic.py
 # checks that the two never drift apart.
 #
-# The signal defaults come from the measurement written down in CLAUDE.md:
+# The signal defaults come from a measurement on real speakers:
 # 20 Hz at 1 % of full scale came out inaudible in a quiet room and still
 # counts as signal for them.
 DEFAULTS = {
@@ -372,7 +372,7 @@ def _key(name):
     Windows numbers outputs in the name itself - "Speakers (4 - USB Advanced
     Audio Device)" becomes "(5 - ..." after being plugged into another port.
     The number sits either inside the brackets or right at the front
-    ("3 - XG27ACS (AMD High Definition Audio Device)"); both are dropped, so
+    ("3 - MON27X (AMD High Definition Audio Device)"); both are dropped, so
     the saved choice still matches.
 
     What it buys costs something: two outputs of one model plugged in at once
@@ -1082,7 +1082,10 @@ class Engine(threading.Thread):
         # How much sleep Windows had counted last time it was asked; the other
         # sign of a break, and the only one on a machine whose monotonic clock
         # counts sleep in. None until it answers - see slept_since_boot().
-        self.slept = slept_since_boot()
+        # Not asked here: the engine is built on import, before the tests
+        # redirect the log, and a refusal would land in the user's real one.
+        # The first check_for_a_break() takes the first reading instead.
+        self.slept = None
         self.playing_from = 0.0         # monotonic, 0 = nothing is playing now
         self.playing_span = 0.0         # how long the burst being played takes
         # Which target devices were present the last time the list was read,
@@ -1358,8 +1361,9 @@ class Engine(threading.Thread):
         A clock put back by hand (drift the other way) is ignored; a pulse too
         many would be harmless anyway, a missing one is the whole problem. The
         drift cannot tell a sleep from the clock being put FORWARD by more than
-        a minute (a time server correcting a badly wrong clock) - one pulse
-        that was not due, which is the price of catching every real sleep.
+        a minute (a time server correcting a badly wrong clock) - a pulse that
+        was not due, and as it counts as a wake-up, the minute of repeats after
+        it: five in all while the repeats are on. That is the price of catching every real sleep.
         Nothing else is decided here: the pause runs on the wall clock and
         needs no correcting.
 
@@ -1390,6 +1394,11 @@ class Engine(threading.Thread):
             # wall clock. Moving it back by the drift makes the age real
             # again - and the countdown along with it.
             self.last_at -= drift
+            # Windows quiet just now would count this same sleep in at its
+            # next answer and report the wake-up a second time. Forgetting its
+            # old reading makes that answer a fresh start instead.
+            if slept is None:
+                self.slept = None
         elif dozed > self.BREAK_S:
             # Nothing to put right in this branch, and that is the difference
             # between the two: a monotonic clock that counted the sleep in has

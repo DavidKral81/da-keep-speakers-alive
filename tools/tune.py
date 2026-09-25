@@ -32,8 +32,8 @@ import time
 import numpy as np
 import sounddevice as sd
 
-# --list prints device names, and a Czech console is cp1250: "Sluchátka (RØDE
-# NT-USB+)" cannot be encoded there and print() raises instead of printing.
+# --list prints device names, and a Czech console is cp1250: "Sluchátka (ØMNI
+# USB+)" cannot be encoded there and print() raises instead of printing.
 # Unprintable characters become "?" rather than ending the run. The same is
 # done in keep_alive.py, which this tool deliberately does not import.
 for _stream in (sys.stdout, sys.stderr):

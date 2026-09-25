@@ -196,7 +196,7 @@ def test_pulse_failure_clears_the_bar():
 FAKE = [
     {"index": 3, "name": "Reproduktory (4 - USB Advanced Audio Device)",
      "samplerate": 48000, "channels": 2},
-    {"index": 7, "name": "Sluchátka (RØDE NT-USB+)",
+    {"index": 7, "name": "Sluchátka (ØMNI USB+)",
      "samplerate": 48000, "channels": 2},
 ]
 
@@ -204,7 +204,7 @@ FAKE = [
 def test_devices():
     print("devices")
     check("exact name is found",
-          K.find_output("Sluchátka (RØDE NT-USB+)", FAKE)["index"] == 7)
+          K.find_output("Sluchátka (ØMNI USB+)", FAKE)["index"] == 7)
     check("a different USB port still matches",
           K.find_output("Reproduktory (9 - USB Advanced Audio Device)",
                         FAKE)["index"] == 3)
@@ -212,11 +212,11 @@ def test_devices():
           K.find_output("Reproduktory (Realtek(R) Audio)", FAKE) is None)
     # Windows also puts the number in FRONT of the name, not only in brackets
     check("a number in front of the name is ignored too",
-          K._key("3 - XG27ACS (AMD High Definition Audio Device)")
-          == K._key("7 - XG27ACS (AMD High Definition Audio Device)"))
+          K._key("3 - MON27X (AMD High Definition Audio Device)")
+          == K._key("7 - MON27X (AMD High Definition Audio Device)"))
     check("but two different devices still do not match",
-          K._key("3 - XG27ACS (AMD High Definition Audio Device)")
-          != K._key("3 - XG27ACS (Realtek(R) Audio)"))
+          K._key("3 - MON27X (AMD High Definition Audio Device)")
+          != K._key("3 - MON27X (Realtek(R) Audio)"))
 
     saved = dict(K.CFG)
     try:
@@ -457,8 +457,8 @@ def test_a_sleep_is_noticed():
       happens where monotonic stands still through a sleep: twelve hours of
       standby in the real log went by as "a couple of minutes".
     - the time Windows says the machine has spent asleep going up. That is the
-      only sign left where monotonic counts the sleep IN, which is what the
-      machine in CLAUDE.md did on 19.09.2026: monotonic, perf_counter, QPC and
+      only sign left where monotonic counts the sleep IN, which is what a
+      real machine did on 19.09.2026: monotonic, perf_counter, QPC and
       GetTickCount64 all agreed, 31 703 s of standby included, so the drift
       above was zero and three wake-ups in a row went unnoticed.
 
@@ -555,19 +555,129 @@ def test_a_sleep_is_noticed():
         check("and the drift is still noticed while it stays quiet",
               engine.woke_up is True, engine.woke_up)
 
-        # The real thing, unmocked: a figure in seconds that cannot be
-        # longer than the machine has been up, nor negative - except by one
-        # tick: GetTickCount64() moves in steps of ~16 ms, so on a machine
-        # that has not slept since boot it reads up to 16 ms below zero.
+        # Quiet, then an answer: the sleep that went by while Windows said
+        # nothing has to be counted in once it speaks again - and a quiet
+        # spell with no sleep in it must not turn into one. Dropping the
+        # reading fails the first, taking the silence for zero the second.
+        engine.woke_up = False
+        engine.clock_gap = K.time.time() - K.time.monotonic()
+        engine.slept = 1000.0
+        K.slept_since_boot = lambda: None
+        engine.check_for_a_break()
+        K.slept_since_boot = lambda: 1000.0 + 3600
+        engine.check_for_a_break()
+        check("a sleep Windows kept quiet about is counted in when it answers",
+              engine.woke_up is True, engine.woke_up)
+
+        engine.woke_up = False
+        engine.slept = 1000.0
+        K.slept_since_boot = lambda: None
+        engine.check_for_a_break()
+        K.slept_since_boot = lambda: 1000.0
+        engine.check_for_a_break()
+        check("and a quiet spell with no sleep in it is no wake-up",
+              engine.woke_up is False, engine.woke_up)
+
+        # Both signs at once: a monotonic clock that stops AND a Windows that
+        # counts the sleep. The drift has to decide, because only its branch
+        # moves the last pulse back - so the age comes out right once, not
+        # twice and not never.
+        engine.woke_up = False
+        engine.last_at = K.time.monotonic()
+        engine.slept = 1000.0
+        engine.clock_gap = K.time.time() - K.time.monotonic() - 3600
+        K.slept_since_boot = lambda: 1000.0 + 3600
+        engine.check_for_a_break()
+        age = K.time.monotonic() - engine.last_at
+        check("both signs at once: noticed, and the last pulse aged once",
+              engine.woke_up is True and 3590 < age < 3610,
+              (engine.woke_up, age))
+
+        # The drift catching a sleep while Windows is quiet, and Windows then
+        # answering with that same sleep: one wake-up, not two. A second one
+        # would start another minute of repeats for nothing.
+        engine.woke_up = False
+        engine.last_at = K.time.monotonic()
+        engine.slept = 1000.0
+        engine.clock_gap = K.time.time() - K.time.monotonic() - 3600
+        K.slept_since_boot = lambda: None
+        engine.check_for_a_break()
+        noticed = engine.woke_up
+        engine.woke_up = False
+        K.slept_since_boot = lambda: 1000.0 + 3600
+        engine.check_for_a_break()
+        check("a sleep the drift caught is not reported again when Windows "
+              "answers", noticed is True and engine.woke_up is False,
+              (noticed, engine.woke_up))
+
+        # The real thing, unmocked: a figure in seconds no longer than the
+        # machine has been up, sleep included - which is GetTickCount64(), not
+        # time.monotonic(): where monotonic stops in a sleep, a weekend asleep
+        # is longer than it. Nor negative - except by one tick: GetTickCount64()
+        # moves in steps of ~16 ms, so on a machine that has not slept since
+        # boot the figure reads up to 16 ms below zero.
         K.slept_since_boot = saved_slept
         live = K.slept_since_boot()
+        up = K._kernel32.GetTickCount64() / 1000
         check("the real sleep counter is a sane number of seconds",
-              live is None or -0.05 <= live <= K.time.monotonic() + 86400,
-              live)
+              live is None or -0.05 <= live <= up + 1, (live, up))
     finally:
         (engine.woke_up, engine.clock_gap, engine.last_at,
          engine.paused_until, engine.slept) = saved
         K.slept_since_boot = saved_slept
+
+
+def test_windows_will_not_say_how_long_it_slept():
+    """slept_since_boot() when Windows refuses to answer.
+
+    It runs on every turn of the engine loop, so a refusal said every time
+    would put a line into the log every second. Said once - and said again if
+    it comes back after Windows has answered in between.
+
+    And the engine is built at import time, before the tests redirect the log:
+    asking Windows there would write a refusal into the user's real log.
+    """
+    print("Windows not saying how long the machine slept")
+
+    class Kernel:
+        """Stands in for kernel32: 5 s up, none of it asleep."""
+        answers = False
+
+        def QueryUnbiasedInterruptTime(self, out):
+            out._obj.value = 5 * 10 ** 7        # 100 ns units
+            return self.answers
+
+        def GetTickCount64(self):
+            return 5000                         # ms
+
+    saved = (K._kernel32, K._no_sleep_counter, K.slept_since_boot)
+    kernel = Kernel()
+    try:
+        K._kernel32 = kernel
+        K._no_sleep_counter = False
+        K.LOG_PATH.write_text("", encoding="utf-8")
+
+        first = K.slept_since_boot()
+        K.slept_since_boot()
+        said = K.LOG_PATH.read_text(encoding="utf-8").count("will not say")
+        check("a refusal gives no figure", first is None, first)
+        check("and is said once, not on every turn", said == 1, said)
+
+        kernel.answers = True
+        figure = K.slept_since_boot()
+        check("an answer gives the figure in seconds", figure == 0.0, figure)
+        kernel.answers = False
+        K.slept_since_boot()
+        said = K.LOG_PATH.read_text(encoding="utf-8").count("will not say")
+        check("and a refusal after it is said again", said == 2, said)
+
+        asked = []
+        K.slept_since_boot = lambda: asked.append(1)
+        K.Engine()
+        check("building the engine asks Windows nothing (it happens on import)",
+              not asked, len(asked))
+    finally:
+        K._kernel32, K._no_sleep_counter, K.slept_since_boot = saved
 
 
 def test_a_pause_runs_in_real_time():
@@ -963,8 +1073,8 @@ def test_a_speaker_plugged_in_gets_the_pulse_at_once():
                 {K._key(n): 1.0 for n in here if n not in unsure})
 
     speakers = "Speakers (4 - USB Advanced Audio Device)"
-    headphones = "Headphones (RODE NT-USB+)"
-    monitor = "2 - XG27ACS (AMD High Definition Audio Device)"
+    headphones = "Headphones (OMNI USB+)"
+    monitor = "2 - MON27X (AMD High Definition Audio Device)"
     try:
         K.refresh_devices = lambda: True
         K.targets = fake_targets
@@ -1337,7 +1447,7 @@ def test_the_volume_correction():
     saved_engine = (engine.gains, list(engine.error_items), engine.retries,
                     engine.seen, engine.muted)
     quiet_speaker = "Speakers (4 - USB Advanced Audio Device)"
-    loud_speaker = "Headphones (RODE NT-USB+)"
+    loud_speaker = "Headphones (OMNI USB+)"
     unknown_speaker = "Monitor (AMD High Definition Audio Device)"
     # 0.025971 is the real reading from this machine's slider at 4 %. Keyed by
     # the full name, the way endpoint_state() hands them over.
@@ -1625,7 +1735,8 @@ def test_problems():
               "defaults" in english and english != czech, english)
 
         # ... and it really reaches the log file, in English, while the window
-        # is set to Czech. The log is always English - see CLAUDE.md.
+        # is set to Czech. The log is always English, whatever the window
+        # speaks.
         K.texts.set_language("cs")
         K.PROBLEMS[:] = [("warn_config", {"error": "a broken file"})]
         K.log_pending_problems()
@@ -1914,6 +2025,7 @@ def main():
     for test in (test_pulse, test_pulse_bar, test_pulse_failure_clears_the_bar,
                  test_devices, test_what_a_missing_device_reports,
                  test_retry_after_a_failed_pulse, test_a_sleep_is_noticed,
+                 test_windows_will_not_say_how_long_it_slept,
                  test_a_pause_runs_in_real_time,
                  test_the_engine_loop_does_its_job,
                  test_a_speaker_plugged_in_gets_the_pulse_at_once,

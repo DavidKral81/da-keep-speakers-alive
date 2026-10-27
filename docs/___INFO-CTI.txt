@@ -310,7 +310,9 @@ DYNAMICKÁ KOREKCE HLASITOSTI
   nedokáže rozlišit — liší se jen číslem portu v názvu a ani
   jeden se s tvým zařízením neshoduje přesně. Pak nejde říct,
   který posuvník ke kterému patří, a impulz jde ven beze změny.
-  Do logu se to zapíše řádkem "Two outputs share a name here…".
+  Okno to po dobu trvání ukazuje v sekci "Chování aplikace" a do
+  logu se to zapíše řádkem "The volume correction does not apply
+  to …".
 
   V logu je pak vidět obojí — nastavená hodnota i to, co se
   opravdu odeslalo:  "(20 Hz, 1.0 % -> 38.5 %, 0.4 s)". Když
@@ -438,8 +440,8 @@ keep_alive.log (kde leží, je v oddílu 10). Log je vždy anglicky.
       v logu jednou; když se to střídá (chvíli to jde, chvíli
       ne), objeví se pokaždé znovu.
 
-  "Two outputs share a name here, so the volume correction is off
-  for it and the pulse goes out as set: …"
+  "The volume correction does not apply to …: several outputs
+  differ only by their port number …" (v okně česky)
       Máš zapnuté dva výstupy, které se liší jen číslem portu
       v názvu, a ani jeden se s tvým vybraným zařízením neshoduje
       přesně (stane se to typicky chvíli po přepojení do jiného

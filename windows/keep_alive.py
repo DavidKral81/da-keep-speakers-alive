@@ -489,7 +489,7 @@ _PKEY_FRIENDLY_NAME = _PROPERTYKEY(
 
 _endpoint_problem = None                # the last failure, so the log gets it once
 _quiet_endpoints = set()                # which ones already said so, same reason
-_collided_endpoints = set()             # and which ones lost their correction
+_collided_endpoints = {}                # which lost their correction: plain -> shown
 
 
 def _slot(iface, index, restype, argtypes):
@@ -771,14 +771,22 @@ def gain_for(name, gains):
     the only sign of it anywhere was the missing "-> ... %" in the log.
 
     Said once per device per collision, like every other repeating message
-    here, and forgotten again as soon as that device can be answered for.
+    here, and forgotten again as soon as that device can be answered for. Said
+    in the window as well, not only in the log: nothing else looks wrong while
+    it lasts - the pulses keep going out - so nobody would open the log.
 
     A reading of None means the endpoint was there and would not say. For the
     device itself that is the answer - it is never swapped for a twin's figure.
     And under the key it stops the fallback as well: the one that would not
     say may be the very endpoint this device is, so the others cannot speak
     for it. Neither is a collision; the walk has already logged the refusal.
+
+    No readings at all - Core Audio would not answer - decide nothing either
+    way: a collision going on stays, rather than vanishing from the window and
+    being logged a second time once the readings are back.
     """
+    if not gains:
+        return None
     plain = _plain(name)
     if plain in gains:
         answer = gains[plain]
@@ -792,12 +800,25 @@ def gain_for(name, gains):
             answer = matches.pop()
         elif len(matches) > 1:
             if plain not in _collided_endpoints:
-                _collided_endpoints.add(plain)
-                log(f"Two outputs share a name here, so the volume correction "
-                    f"is off for it and the pulse goes out as set: {name}")
+                _collided_endpoints[plain] = name
+                log(texts.en("warn_twin", name=name))
             return None
-    _collided_endpoints.discard(plain)
+    _collided_endpoints.pop(plain, None)
     return answer
+
+
+def problems_to_show():
+    """What the window lists: PROBLEMS, plus every collision still going on.
+
+    The collisions are read off _collided_endpoints at the moment of drawing,
+    not copied into PROBLEMS. The engine thread would otherwise rewrite a list
+    the Tk thread writes to as well, and either could lose the other's line -
+    a collision lost that way never came back, because it is only reported
+    when it starts. list() of the values is a single call, so the engine
+    changing the dict meanwhile cannot break the walk.
+    """
+    names = list(_collided_endpoints.values())
+    return list(PROBLEMS) + [("warn_twin", {"name": name}) for name in names]
 
 
 # The loudest pulse the correction below is allowed to build. Full scale, so
@@ -1273,6 +1294,14 @@ class Engine(threading.Thread):
                 except Exception as error:      # PortAudioError and friends
                     problems.append(("err_play", {"name": device["name"],
                                                   "error": error}))
+            # A collision is only kept for a device this pulse still asked
+            # gain_for() about. With the correction off, or the speaker no
+            # longer chosen, nothing would ever clear it from the window.
+            asked_now = ({_plain(device["name"]) for device in chosen}
+                         if CFG.get("amp_correction", False) else set())
+            for plain in list(_collided_endpoints):
+                if plain not in asked_now:
+                    _collided_endpoints.pop(plain, None)
             self.last_at = time.monotonic()
             self.last_wall = datetime.now()
             self.count += 1
@@ -2831,7 +2860,8 @@ class Settings:
         # Problems with no other way of being seen (see problem()). Rendered
         # here, from the key and its arguments, so the window speaks the
         # user's language while the log stayed English.
-        warnings = "\n".join(tx(key, **args) for key, args in PROBLEMS)
+        warnings = "\n".join(tx(key, **args)
+                             for key, args in problems_to_show())
         if warnings != self.problem_label.cget("text"):
             self.problem_label.configure(text=warnings)
             if warnings:

@@ -463,6 +463,27 @@ def main():
         step("the log opens, and says so when it cannot",
              the_log_can_be_opened)
 
+        def a_collision_is_in_the_window():
+            """Two outputs under one key switch the volume correction off for
+            a device. That is drawn from the engine's own record of it, not
+            from PROBLEMS - so it has to reach the window without anyone
+            putting it there."""
+            name = "Speakers (7 - Example USB Audio Device)"
+            saved = dict(K._collided_endpoints)
+            try:
+                K._collided_endpoints.clear()
+                K._collided_endpoints[K._plain(name)] = name
+                settings._refresh_status()
+                root.update()
+                assert name in settings.problem_label["text"], \
+                    settings.problem_label["text"]
+            finally:
+                K._collided_endpoints.clear()
+                K._collided_endpoints.update(saved)
+                settings._refresh_status()
+        step("a collision of two outputs shows in the window",
+             a_collision_is_in_the_window)
+
         def every_link_leads_somewhere():
             """All four links at the foot, and each one really opens something.
 

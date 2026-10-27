@@ -61,12 +61,29 @@ def output_devices(show_all: bool = False):
         yield index, device
 
 
+def default_output() -> int | None:
+    """Index of the output Windows plays through, in WASAPI's numbering.
+
+    Not sd.default.device: that answers for PortAudio's default host API,
+    which is MME on Windows - a different list of indices than the one this
+    tool works with, so it marked nothing and played through MME. Only on a
+    machine with no WASAPI at all is that the right answer, and then it is
+    the one given.
+    """
+    index = sd.default.device[1]
+    for api in sd.query_hostapis():
+        if api["name"] == PREFERRED_HOSTAPI:
+            index = api["default_output_device"]
+            break
+    return None if index is None or index < 0 else int(index)
+
+
 def cmd_list(args) -> int:
-    default_output = sd.default.device[1]
+    default = default_output()
     found = False
     for index, device in output_devices(args.all):
         found = True
-        mark = " <- system default" if index == default_output else ""
+        mark = " <- system default" if index == default else ""
         print(
             f"[{index:3d}] {device['name']}\n"
             f"       {hostapi_name(device['hostapi'])}, "
@@ -86,10 +103,10 @@ def cmd_list(args) -> int:
 def resolve_device(spec: str | None) -> int:
     """Accept a device index or a case-insensitive part of its name."""
     if spec is None:
-        default_output = sd.default.device[1]
-        if default_output is None or default_output < 0:
+        default = default_output()
+        if default is None:
             raise SystemExit("No system default output. Pass --device explicitly.")
-        return int(default_output)
+        return default
 
     if spec.strip().lstrip("-").isdigit():
         index = int(spec)

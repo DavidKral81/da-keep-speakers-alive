@@ -321,8 +321,10 @@ DYNAMIC VOLUME CORRECTION
   The same happens when two outputs are on that the app cannot tell
   apart - they differ only by the port number in the name, and
   neither matches your device exactly. There is then no saying which
-  slider belongs to which, so the pulse goes out unchanged. The log
-  gets a line saying "Two outputs share a name here...".
+  slider belongs to which, so the pulse goes out unchanged. While it
+  lasts, the window says so under "Application behaviour", and the
+  log gets a line saying "The volume correction does not apply
+  to ...".
 
   The log then shows both the setting and what really went out:
   "(20 Hz, 1.0 % -> 38.5 %, 0.4 s)". When the arrow is missing and
@@ -450,8 +452,8 @@ Look at "Status" in the window first, then at keep_alive.log
       the log holds one such line; if it comes and goes, the line
       appears again each time it comes back.
 
-  "Two outputs share a name here, so the volume correction is off
-  for it and the pulse goes out as set: ..."
+  "The volume correction does not apply to ...: several outputs
+  differ only by their port number ..." (in the window too)
       Two outputs are on that differ only by the port number in
       their names, and neither matches your chosen device exactly
       (this typically happens for a while after replugging into a

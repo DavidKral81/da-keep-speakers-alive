@@ -186,6 +186,10 @@ def main():
         # in both languages, like everything else here.
         K.problem("warn_config",
                   error="Expecting ',' delimiter: line 4 column 3 (char 61)")
+        # The longest of them, so the wrapping is seen at its worst. Put
+        # where the engine keeps it; the window draws it from there.
+        twin = "Reproduktory (5 - Example USB Audio Device)"
+        K._collided_endpoints[K._plain(twin)] = twin
 
     root = tk.Tk()
     root.withdraw()

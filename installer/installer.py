@@ -129,7 +129,7 @@ def stored_language():
             value, _ = winreg.QueryValueEx(key, "InstallerLanguage")
             return value if value in dict(texts.LANGUAGES) else None
     except OSError:
-        return None
+        return None     # no key or no value: nothing was picked, not a fault
 
 
 def _set_language_in(path, code):
@@ -202,7 +202,7 @@ def set_icon(window):
         try:
             window.iconbitmap(default=str(icon))
         except tk.TclError:
-            pass
+            pass        # cosmetic only: the window keeps Tk's own icon
 
 
 def dark_titlebar(window):
@@ -245,7 +245,7 @@ def is_admin():
     try:
         return ctypes.windll.shell32.IsUserAnAdmin() != 0
     except Exception:
-        return False
+        return False    # cannot tell: the caller then says admin rights are needed
 
 
 def quiet(command):
@@ -656,7 +656,7 @@ def uninstall(delete_data, report):
     try:
         winreg.DeleteKey(winreg.HKEY_LOCAL_MACHINE, REG_KEY)
     except FileNotFoundError:
-        pass
+        pass            # already gone is exactly what was wanted
 
     left = []
     if task_left:
@@ -674,7 +674,7 @@ def uninstall(delete_data, report):
                 try:
                     delete_folder(DATA)
                 except OSError:
-                    pass
+                    pass        # judged by what is left, just below
                 if not DATA.exists():
                     break
                 time.sleep(1)
@@ -687,7 +687,7 @@ def uninstall(delete_data, report):
         try:
             delete_folder(TARGET_DIR)
         except OSError:
-            pass
+            pass            # judged by what is left, just below
         if not TARGET_DIR.exists():
             break
         time.sleep(1)
@@ -1021,7 +1021,7 @@ class ResultWindow:
             info = struct(ctypes.sizeof(struct), hwnd, 0x0000000C, 5, 0)
             ctypes.windll.user32.FlashWindowEx(ctypes.byref(info))
         except Exception:
-            pass
+            pass        # cosmetic only, like the dark title bar
 
     def finish(self):
         if not self.uninstalling:

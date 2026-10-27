@@ -235,6 +235,58 @@ def test_devices():
         K.CFG.update(saved)
 
 
+def test_the_measuring_tool_finds_the_default():
+    """tune.py has to mean the same speakers by "the default" as the app does.
+
+    sd.default.device answers for MME, PortAudio's default host API, whose
+    numbering is not WASAPI's - so --list marked nothing, and --tone without
+    --device played through MME. A stand-in PortAudio, because on the real
+    machine the two indices could happen to agree and hide the difference.
+    """
+    print("measuring tool: default output")
+    import contextlib
+    import io
+    import types
+
+    devices = [
+        {"name": "Speakers (MME)", "hostapi": 0, "max_output_channels": 2,
+         "default_samplerate": 44100},
+        {"name": "Monitor (WASAPI)", "hostapi": 1, "max_output_channels": 2,
+         "default_samplerate": 48000},
+        {"name": "Speakers (WASAPI)", "hostapi": 1, "max_output_channels": 2,
+         "default_samplerate": 48000},
+    ]
+    apis = [{"name": "MME", "default_output_device": 0},
+            {"name": "Windows WASAPI", "default_output_device": 2}]
+
+    def query_devices(index=None):
+        return devices if index is None else devices[index]
+
+    def query_hostapis(index=None):
+        return apis if index is None else apis[index]
+
+    fake = types.SimpleNamespace(
+        query_devices=query_devices, query_hostapis=query_hostapis,
+        default=types.SimpleNamespace(device=(None, 0)))
+    saved_sd = tune.sd
+    try:
+        tune.sd = fake
+        check("without --device the tool plays to the WASAPI default",
+              tune.resolve_device(None) == 2, tune.resolve_device(None))
+        listing = io.StringIO()
+        with contextlib.redirect_stdout(listing):
+            tune.cmd_list(types.SimpleNamespace(all=False))
+        # Each device takes two lines; the mark ends the second one.
+        lines = listing.getvalue().splitlines()
+        marked = [lines[i - 1] for i, line in enumerate(lines)
+                  if "system default" in line]
+        check("and --list marks that one",
+              len(marked) == 1 and "Speakers (WASAPI)" in marked[0],
+              listing.getvalue())
+    finally:
+        tune.sd = saved_sd
+
+
 def test_what_a_missing_device_reports():
     """An unplugged device must be reported as unplugged - and as nothing else.
 
@@ -1449,6 +1501,7 @@ def test_the_volume_correction():
     saved_state, saved_cfg = K.endpoint_state, dict(K.CFG)
     saved_engine = (engine.gains, list(engine.error_items), engine.retries,
                     engine.seen, engine.muted)
+    saved_problems = list(K.PROBLEMS)
     quiet_speaker = "Speakers (4 - USB Advanced Audio Device)"
     loud_speaker = "Headphones (OMNI USB+)"
     unknown_speaker = "Monitor (AMD High Definition Audio Device)"
@@ -1596,6 +1649,89 @@ def test_the_volume_correction():
               K._plain(twin_c) not in K._collided_endpoints,
               sorted(K._collided_endpoints))
 
+        # The log alone was not enough: nobody opens it until something is
+        # already wrong, and here nothing looks wrong - pulses keep going out.
+        # So the collision is in the window too, for as long as it lasts, and
+        # only for the devices still being asked about. Otherwise the window
+        # would go on blaming a collision nobody is checking for any more.
+        def twin_warnings():
+            # What the window draws, not what some list in between holds.
+            return [args for key, args in K.problems_to_show()
+                    if key == "warn_twin"]
+
+        def pulse(*names):
+            K.targets = lambda devices=None: (
+                [{"name": name, "index": i, "samplerate": 48000,
+                  "channels": 2} for i, name in enumerate(names)], [])
+            engine.note_the_mute({K._key(name) for name in names})
+            engine.send(" (test)")
+
+        def logged_twins():
+            return K.LOG_PATH.read_text(encoding="utf-8").count(
+                "correction does not apply")
+
+        K.PROBLEMS.clear()
+        K._collided_endpoints.clear()
+        K.LOG_PATH.write_text("", encoding="utf-8")
+        K.endpoint_state = lambda: (set(), set(), dict(both))
+        pulse(twin_c)
+        pulse(twin_c)
+        check("a collision is shown in the window, once",
+              twin_warnings() == [{"name": twin_c}], twin_warnings())
+        # Another thread rewriting PROBLEMS (a link that opened after all)
+        # must not take the collision with it: it is reported only when it
+        # starts, so a line lost that way never came back.
+        K.PROBLEMS[:] = []
+        check("and stays there whatever happens to the other problems",
+              twin_warnings() == [{"name": twin_c}], twin_warnings())
+        # Core Audio not answering for a while says nothing about the twins:
+        # the line stays, and is not logged a second time once it answers.
+        K.endpoint_state = lambda: None
+        pulse(twin_c)
+        check("and while Core Audio would not answer",
+              twin_warnings() == [{"name": twin_c}], twin_warnings())
+        K.endpoint_state = lambda: (set(), set(), dict(both))
+        pulse(twin_c)
+        check("without being logged again when it answers once more",
+              logged_twins() == 1, logged_twins())
+        settled_state = dict(both)
+        settled_state[K._plain(twin_c)] = 0.1
+        K.endpoint_state = lambda: (set(), set(), dict(settled_state))
+        pulse(twin_c)
+        check("and leaves it once that device can be answered for again",
+              twin_warnings() == [], twin_warnings())
+        K.endpoint_state = lambda: (set(), set(), dict(both))
+        pulse(twin_c)
+        K.CFG["amp_correction"] = False
+        pulse(twin_c)
+        check("and once the correction is switched off",
+              twin_warnings() == [], twin_warnings())
+        K.CFG["amp_correction"] = True
+        pulse(twin_c)
+        pulse(twin_b)                   # answered by its own full name
+        check("and once that speaker is no longer pulsed",
+              twin_warnings() == [], twin_warnings())
+        # Two models can each have a twin at once. One of them settling must
+        # take only its own line off the window.
+        other_a = "Monitor (1 - Example HDMI Audio)"
+        other_b = "Monitor (2 - Example HDMI Audio)"
+        other_c = "Monitor (3 - Example HDMI Audio)"
+        two_clashes = dict(both)
+        two_clashes.update({K._plain(other_a): 0.2, K._plain(other_b): 0.7})
+        K.endpoint_state = lambda: (set(), set(), dict(two_clashes))
+        pulse(twin_c, other_c)
+        check("two collisions at once are both shown",
+              twin_warnings() == [{"name": twin_c}, {"name": other_c}],
+              twin_warnings())
+        one_settled = dict(two_clashes)
+        one_settled[K._plain(twin_c)] = 0.1
+        K.endpoint_state = lambda: (set(), set(), dict(one_settled))
+        pulse(twin_c, other_c)
+        check("and one of them settling leaves the other in the window",
+              twin_warnings() == [{"name": other_c}], twin_warnings())
+        K.PROBLEMS.clear()
+        K._collided_endpoints.clear()
+
         # The same thing through send(), which is where it actually mattered -
         # and in the shape it really takes. targets() never picks two devices
         # that share a key, so it is ONE speaker being pulsed while the other
@@ -1646,6 +1782,7 @@ def test_the_volume_correction():
         K.play, K.targets = saved_play, saved_targets
         K.endpoint_state = saved_state
         K._collided_endpoints.clear()
+        K.PROBLEMS[:] = saved_problems
         (engine.gains, engine.error_items, engine.retries, engine.seen,
          engine.muted) = saved_engine
         K.CFG.clear()
@@ -2026,7 +2163,8 @@ def test_one_endpoint_that_will_not_answer():
 
 def main():
     for test in (test_pulse, test_pulse_bar, test_pulse_failure_clears_the_bar,
-                 test_devices, test_what_a_missing_device_reports,
+                 test_devices, test_the_measuring_tool_finds_the_default,
+                 test_what_a_missing_device_reports,
                  test_retry_after_a_failed_pulse, test_a_sleep_is_noticed,
                  test_windows_will_not_say_how_long_it_slept,
                  test_a_pause_runs_in_real_time,

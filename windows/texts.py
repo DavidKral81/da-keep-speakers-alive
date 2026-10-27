@@ -108,7 +108,8 @@ CS = {
                            "se teprve rozjíždí a první impulz se může ztratit, "
                            "i když ho aplikace zapíše jako odeslaný. "
                            "Opakování ho podchytí. Totéž platí po spuštění "
-                           "aplikace a po připojení reproduktoru.",
+                           "aplikace (jen když je zapnutá hned od startu) "
+                           "a po připojení reproduktoru.",
     "opt_seconds": "{s} sekund",
     "opt_minute": "{m} minuta",
     "opt_minutes": "{m} minuty",
@@ -151,6 +152,11 @@ CS = {
                        "nový soubor, takže roste dál. ({error})",
     "warn_log_open": "Log se nepodařilo otevřít. Hledej ho v {path}. ({error})",
     "warn_open": "Tohle se nepodařilo otevřít: {path} ({error})",
+    "warn_twin": "Korekce hlasitosti se u zařízení „{name}“ neuplatní: víc "
+                 "výstupů se liší jen číslem portu a nejde poznat, který je "
+                 "ten správný. Impulz jde ven tak, jak je nastavený; pomůže "
+                 "odpojit výstup, "
+                 "který se nepoužívá.",
 
     # --- pause card ----------------------------------------------------
     "card_pause": "Dočasně pozastavit",
@@ -324,7 +330,8 @@ EN = {
                            "is still starting up, and the first pulse can be "
                            "lost even though the app records it as sent. "
                            "Repeating it catches that. The same goes for the "
-                           "app starting and for a speaker that has just been "
+                           "app starting (only when it is switched on from the "
+                           "start) and for a speaker that has just been "
                            "plugged in.",
     "opt_seconds": "{s} seconds",
     "opt_minute": "{m} minute",
@@ -369,6 +376,10 @@ EN = {
     "warn_log_open": "The log could not be opened. It lives in {path}. "
                      "({error})",
     "warn_open": "This could not be opened: {path} ({error})",
+    "warn_twin": "The volume correction does not apply to “{name}”: several "
+                 "outputs differ only by their port number and there is no "
+                 "telling which one it is. The pulse goes out as set; "
+                 "unplugging the output not in use helps.",
 
     # --- pause card ----------------------------------------------------
     "card_pause": "Pause for a while",

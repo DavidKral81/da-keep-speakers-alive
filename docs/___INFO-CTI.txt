@@ -390,6 +390,8 @@ Když se úlohu nepodaří vytvořit (třeba kvůli oprávnění), aplikace to
 NAHLÁSÍ a přepínač zůstane vypnutý. Záměrně se v takovém případě
 nedělá nic náhradního — podstrčit místo toho zástupce ve složce
 Po spuštění by znamenalo udělat něco jiného, než o co jsi žádal.
+Totéž platí opačně: když úlohu nejde smazat, aplikace to nahlásí
+a přepínač zůstane zapnutý.
 
 Aplikace NEMŮŽE běžet jako služba Windows. Služby běží v relaci 0,
 kde zvuk fyzicky nehraje. Musí to být obyčejný uživatelský proces —

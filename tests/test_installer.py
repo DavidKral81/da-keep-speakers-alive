@@ -282,6 +282,34 @@ try:
     check("Start menu shortcut removed", False, I.STARTMENU.exists())
     check("desktop shortcut removed", False, I.DESKTOP.exists())
 
+    print("\n4b) AN UNTICKED SHORTCUT THAT WILL NOT DELETE IS REPORTED")
+    # The same trap as 5b below, on the way in: the user unticks a shortcut on
+    # a reinstall, Explorer holds the old .lnk open, and the run used to end
+    # with "Done." while the shortcut stayed. Both kinds, because the two
+    # branches are separate code.
+    I.install(task=False, start_menu=True, desktop=True, report=report)
+    said = []
+    real_unlink = Path.unlink
+
+    def refuses(self, missing_ok=False):
+        if self in (I.STARTMENU, I.DESKTOP):
+            raise PermissionError("something has it open")
+        return real_unlink(self, missing_ok=missing_ok)
+
+    Path.unlink = refuses
+    try:
+        result = I.install(task=False, start_menu=False, desktop=False,
+                           report=said.append)
+    finally:
+        Path.unlink = real_unlink
+    check("installation does NOT claim success", False, result)
+    check("and it names the Start menu shortcut that stayed", True,
+          any(I.tx("ins_prob_startmenu_left") in line for line in said))
+    check("and the desktop one", True,
+          any(I.tx("ins_prob_desktop_left") in line for line in said))
+    real_unlink(I.STARTMENU, missing_ok=True)       # tidy up after the test
+    real_unlink(I.DESKTOP, missing_ok=True)
+
     print("\n5) UNINSTALL (keeping the settings)")
     (I.DATA / "config.json").write_text("{}", encoding="utf-8")
     result = I.uninstall(delete_data=False, report=report)

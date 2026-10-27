@@ -402,7 +402,9 @@ Turning the switch off deletes the task.
 If the task cannot be created (permissions, say), the app SAYS SO
 and the switch stays off. Nothing is substituted on purpose -
 quietly dropping a shortcut into the Startup folder instead would
-mean doing something other than what you asked for.
+mean doing something other than what you asked for. The same goes
+the other way: a task that cannot be deleted is reported, and the
+switch stays on.
 
 The app CANNOT run as a Windows service. Services run in session 0,
 where audio does not physically play. It has to be an ordinary user

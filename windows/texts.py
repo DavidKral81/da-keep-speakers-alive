@@ -193,6 +193,10 @@ CS = {
                   "Zkusí to znovu za chvíli.",
     "err_autostart": "Úlohu v Plánovači úloh se nepodařilo vytvořit. "
                      "Spouštění po přihlášení zůstává vypnuté.",
+    "err_autostart_off": "Úlohu v Plánovači úloh se nepodařilo smazat, "
+                         "takže se aplikace po přihlášení dál spouští. Úlohu "
+                         "lze smazat v Plánovači úloh, nebo přepínač vypnout "
+                         "z aplikace spuštěné jako správce.",
 
     # --- installer -----------------------------------------------------
     # The installer speaks out of THIS table, not out of a copy of its own -
@@ -230,6 +234,10 @@ CS = {
     "ins_prob_language": "předání jazyka aplikaci",
     "ins_prob_startmenu": "zástupce v nabídce Start",
     "ins_prob_desktop": "zástupce na ploše",
+    "ins_prob_startmenu_left": "odstranění zástupce v nabídce Start (je "
+                               "třeba ho smazat ručně)",
+    "ins_prob_desktop_left": "odstranění zástupce na ploše (je třeba ho "
+                             "smazat ručně)",
     "ins_prob_program": "program v cílové složce",
     "ins_prob_uninstaller": "odinstalátor",
     # this one has to say what to do about it - the user cannot guess
@@ -416,6 +424,10 @@ EN = {
                   "again shortly.",
     "err_autostart": "The task could not be created in Task Scheduler. "
                      "Starting at logon stays switched off.",
+    "err_autostart_off": "The task could not be deleted from Task Scheduler, "
+                         "so the app still starts at logon. The task can be "
+                         "deleted in Task Scheduler, or the switch turned off "
+                         "from the app run as administrator.",
 
     # --- installer -----------------------------------------------------
     "ins_title_install": "{app} — setup",
@@ -449,6 +461,10 @@ EN = {
     "ins_prob_language": "handing the language to the app",
     "ins_prob_startmenu": "the Start menu shortcut",
     "ins_prob_desktop": "the desktop shortcut",
+    "ins_prob_startmenu_left": "removing the Start menu shortcut (it has to "
+                               "be deleted by hand)",
+    "ins_prob_desktop_left": "removing the desktop shortcut (it has to be "
+                             "deleted by hand)",
     "ins_prob_program": "the program in the target folder",
     "ins_prob_uninstaller": "the uninstaller",
     # this one has to say what to do about it - the user cannot guess

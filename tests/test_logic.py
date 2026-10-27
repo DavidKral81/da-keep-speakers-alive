@@ -287,6 +287,74 @@ def test_the_measuring_tool_finds_the_default():
         tune.sd = saved_sd
 
 
+def test_start_at_logon_says_what_really_happened():
+    """Switching start-at-logon off has to say so only when it IS off.
+
+    The task runs with the highest privileges, so a copy started without them
+    may not be allowed to delete it. The log said "disabled" whatever
+    happened, and the switch in the window flipped back on with no word why.
+    The scheduler is stood in for - a test must never touch the real task.
+    """
+    print("start at logon")
+    saved = (K._quiet, K._autostart, K.NO_DIALOG, K.CFG.get("log"))
+    task = {"there": True, "deletable": False}
+    asked = []
+
+    def scheduler(command):
+        asked.append(command)
+        if "/Delete" in command:
+            if task["deletable"]:
+                task["there"] = False
+            return task["deletable"]
+        return task["there"]                  # /Query
+
+    def written():
+        return K.LOG_PATH.read_text(encoding="utf-8")
+
+    try:
+        K._quiet = scheduler
+        K.NO_DIALOG = True
+        K.CFG["log"] = True
+        K.LOG_PATH.write_text("", encoding="utf-8")
+        result = K.autostart_set(False)
+        check("a task that would not go is not logged as gone",
+              "Start at logon disabled." not in written(), written())
+        check("but as not switched off", "could NOT be disabled" in written(),
+              written())
+        check("and the switch reports it still on", result is True, result)
+        check("the stand-in, not the real scheduler, was asked",
+              any("/Delete" in c for c in asked), asked)
+        task["deletable"] = True
+        K.LOG_PATH.write_text("", encoding="utf-8")
+        result = K.autostart_set(False)
+        check("a task that went is logged as switched off",
+              "Start at logon disabled." in written()
+              and "NOT" not in written(), written())
+        check("and the switch reports it off", result is False, result)
+    finally:
+        K._quiet, K._autostart, K.NO_DIALOG, K.CFG["log"] = saved
+
+    # A command that cannot even be started is not the same answer as a
+    # command that said no - and it must leave a trace of which it was.
+    saved_run = K.subprocess.run
+
+    def cannot_start(*args, **kwargs):
+        raise OSError("pretend the shell is not there")
+
+    try:
+        K.subprocess.run = cannot_start
+        K.CFG["log"] = True
+        K.LOG_PATH.write_text("", encoding="utf-8")
+        answer = K._quiet('schtasks /Query /TN "x"')
+        check("a command that cannot start answers no",
+              answer is False, answer)
+        check("and says why in the log",
+              "pretend the shell is not there" in written(), written())
+    finally:
+        K.subprocess.run = saved_run
+        K.CFG["log"] = saved[3]
+
+
 def test_what_a_missing_device_reports():
     """An unplugged device must be reported as unplugged - and as nothing else.
 
@@ -2164,6 +2232,7 @@ def test_one_endpoint_that_will_not_answer():
 def main():
     for test in (test_pulse, test_pulse_bar, test_pulse_failure_clears_the_bar,
                  test_devices, test_the_measuring_tool_finds_the_default,
+                 test_start_at_logon_says_what_really_happened,
                  test_what_a_missing_device_reports,
                  test_retry_after_a_failed_pulse, test_a_sleep_is_noticed,
                  test_windows_will_not_say_how_long_it_slept,

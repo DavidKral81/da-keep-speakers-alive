@@ -1708,7 +1708,10 @@ def _quiet(command):
         v = subprocess.run(command, shell=True, capture_output=True, text=True,
                            creationflags=0x08000000)   # CREATE_NO_WINDOW
         return v.returncode == 0
-    except Exception:
+    except Exception as error:
+        # Still "no" to the caller, but not a silent one: a command that could
+        # not even start reads exactly like a task that is not there.
+        log(f"Could not run {command}: {error}")
         return False
 
 
@@ -1847,7 +1850,16 @@ def autostart_set(enable):
                 user32.MessageBoxW(0, tx("err_autostart"), APP_NAME, 0x30)
     else:
         _quiet(f'schtasks /Delete /F /TN "{TASK_NAME}"')
-        log("Start at logon disabled.")
+        # Asked, not assumed. The task carries the highest privileges, so a
+        # copy started without them may not be allowed to delete it - and the
+        # log used to say "disabled" regardless, while the switch flipped back
+        # on with no word why.
+        if autostart_enabled(refresh=True):
+            log("Start at logon could NOT be disabled.")
+            if not NO_DIALOG:
+                user32.MessageBoxW(0, tx("err_autostart_off"), APP_NAME, 0x30)
+        else:
+            log("Start at logon disabled.")
     _autostart = None
     return autostart_enabled(refresh=True)
 

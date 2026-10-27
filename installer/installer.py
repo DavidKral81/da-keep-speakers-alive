@@ -524,25 +524,25 @@ def _install(task, start_menu, desktop, report, held=True):
         # reported success and an app that starts in the old language.
         problems.append(tx("ins_prob_language_elsewhere"))
 
-    if start_menu:
-        report(tx("ins_startmenu"))
-        if not create_shortcut(STARTMENU, exe, exe):
-            problems.append(tx("ins_prob_startmenu"))
-    else:
+    # An unticked shortcut is removed, and the removal is ASKED about, the
+    # same as in uninstall(): Explorer can hold a .lnk open, and a shortcut
+    # the user turned down must not stay behind under a plain "Done."
+    for wanted, lnk, make, make_failed, left in (
+            (start_menu, STARTMENU, "ins_startmenu", "ins_prob_startmenu",
+             "ins_prob_startmenu_left"),
+            (desktop, DESKTOP, "ins_desktop", "ins_prob_desktop",
+             "ins_prob_desktop_left")):
+        if wanted:
+            report(tx(make))
+            if not create_shortcut(lnk, exe, exe):
+                problems.append(tx(make_failed))
+            continue
         try:
-            STARTMENU.unlink(missing_ok=True)
+            lnk.unlink(missing_ok=True)
         except OSError:
-            pass
-
-    if desktop:
-        report(tx("ins_desktop"))
-        if not create_shortcut(DESKTOP, exe, exe):
-            problems.append(tx("ins_prob_desktop"))
-    else:
-        try:
-            DESKTOP.unlink(missing_ok=True)
-        except OSError:
-            pass
+            pass        # judged by what is left, just below
+        if lnk.exists():
+            problems.append(tx(left))
 
     report(tx("ins_registry"))
     size = sum(f.stat().st_size for f in TARGET_DIR.rglob("*") if f.is_file())

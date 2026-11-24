@@ -2,7 +2,11 @@
 # progress, notes from conversations, what is approved and what is not) that
 # does not belong on a public GitHub. Whatever has public value - measurements,
 # technical decisions and their reasons - goes into README.md and docs/.
+# The same holds for the AI assistant setup next to it.
 CLAUDE.md
+AGENTS.md
+.ai/
+.claude/
 
 # Virtual environment - rebuilt from requirements.txt, never versioned.
 # It also breaks when the project folder is renamed; delete and recreate it.
